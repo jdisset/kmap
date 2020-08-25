@@ -15,5 +15,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -g -Wextra -pedantic")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -g -Wall -Wextra -pedantic")
 
-add_executable(kmap main.cpp)
 
+find_package( Boost)
+include_directories( ${Boost_INCLUDE_DIRS} )
+
+add_executable(kmap main.cpp)

@@ -1,7 +1,7 @@
 [
 {
   "directory": "/Users/jeandisset/Code/marks/kmap/build",
-  "command": "/Library/Developer/CommandLineTools/usr/bin/c++    -O3 -DNDEBUG -O3 -Wall -Wextra -pedantic -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk   -std=gnu++1z -o CMakeFiles/kmap.dir/main.cpp.o -c /Users/jeandisset/Code/marks/kmap/main.cpp",
+  "command": "/usr/local/opt/llvm/bin/clang++   -I/usr/local/include  -g -Wall -g -Wextra -pedantic -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk   -std=gnu++17 -o CMakeFiles/kmap.dir/main.cpp.o -c /Users/jeandisset/Code/marks/kmap/main.cpp",
   "file": "/Users/jeandisset/Code/marks/kmap/main.cpp"
 }
 ]
