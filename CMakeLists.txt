@@ -17,5 +17,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -Wall -Wextra -pedan
 
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/external")
 
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
 add_executable(kmap main.cpp)
-target_link_libraries(kmap PUBLIC ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(kmap PRIVATE Threads::Threads)
