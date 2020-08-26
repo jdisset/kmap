@@ -16,7 +16,7 @@ template <std::size_t N, typename F> constexpr void static_for(F func) {
 
 template <typename T>
 std::ostream& operator<<(std::ostream& output, std::vector<T> const& values) {
-	for (auto const& value : values) output << value << " ";
+	for (auto const& value : values) output << value;
 	return output;
 }
 
@@ -46,6 +46,27 @@ struct Alpha {
 
 	// array containing encoding char -> int, for each alphabet
 	std::array<std::array<int8_t, 128>, Alphabet::size> a;
+
+	static std::vector<char> getAlphabet(Alphabet alpha) {
+		std::vector<char> res{};
+		switch (alpha) {
+			case Alphabet::dna:
+				res.insert(res.begin(), std::get<Alphabet::dna>(alphabets).begin(),
+				           std::get<Alphabet::dna>(alphabets).end());
+				break;
+			case Alphabet::rna:
+				res.insert(res.begin(), std::get<Alphabet::rna>(alphabets).begin(),
+				           std::get<Alphabet::rna>(alphabets).end());
+				break;
+			case Alphabet::protein:
+				res.insert(res.begin(), std::get<Alphabet::protein>(alphabets).begin(),
+				           std::get<Alphabet::protein>(alphabets).end());
+				break;
+			default:
+				break;
+		}
+		return res;
+	}
 
 	constexpr Alpha() : a() {
 		static_for<Alphabet::size>([&](auto alpha) {
