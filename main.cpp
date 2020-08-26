@@ -20,24 +20,21 @@ void computeKMap(const std::vector<encoded_seq_t>& seqs, int k, Alphabet alpha,
 	for (size_t s = lowerBound; s < upperBound; ++s) {
 		const int N = seqs[s].size();
 		assert(N > 0);
-		if (N > k) {  // we skip if shorter than k
-			int prevUnknownCharacter = k + 1;
-			for (int i = 0; i < (int)N + k - 2; ++i) {
-				const size_t left = std::max(0, i - k + 1);
-				const size_t right = std::min(N - 1, i);
-				const int nxtchar = seqs[s][std::min(N - 1, i + 1)];
-				const size_t l = (int)right - (int)left + 1;
+		int prevUnknownCharacter = k + 1;
+		for (int i = 0; i < (int)N - 1; ++i) {
+			const size_t left = std::max(0, i - k + 1);
+			const int nxtchar = seqs[s][i + 1];
+			const size_t l = i - (int)left + 1;
 
-				if (nxtchar < 0)  // unknown character
-					prevUnknownCharacter = 0;
-				else
-					++prevUnknownCharacter;
+			if (nxtchar < 0)  // unknown character
+				prevUnknownCharacter = 0;
+			else
+				++prevUnknownCharacter;
 
-				if (prevUnknownCharacter > k) {
-					SeqView sv{&seqs[s][left], l};
-					if (!res.count(sv)) res[sv] = std::vector<size_t>(ALPHABET_SIZE, 0);
-					res[sv][nxtchar]++;
-				}
+			if (prevUnknownCharacter > k) {
+				SeqView sv{&seqs[s][left], l};
+				if (!res.count(sv)) res[sv] = std::vector<size_t>(ALPHABET_SIZE, 0);
+				res[sv][nxtchar]++;
 			}
 		}
 	}

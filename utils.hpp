@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <indicators.hpp>
@@ -135,39 +136,46 @@ inline std::vector<encoded_seq_t> randomDNASequences(int L, int N) {
 
 inline void dump(const kmap_t& m, int k, Alphabet alpha, std::string outputpath) {
 	const int CHUNKSIZE = 10000;
-	std::ofstream file(outputpath);
-	if (file.fail()) throw std::runtime_error("Error opening output file");
+
+	// std::ofstream file(outputpath);
+	// if (file.fail()) throw std::runtime_error("Error opening output file");
+
+	std::FILE* file = std::fopen(outputpath.c_str(), "w");
+	if (!file) throw std::runtime_error("Error opening output file");
+
 	ProgressSpinner spinner{option::PostfixText{"Writing to " + outputpath},
 	                        option::ForegroundColor{Color::yellow},
 	                        option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
-	int c = 0;
 
 	auto alphabet = Alpha::getAlphabet(alpha);
-	file << "kmer";
-	// we ignore the last column since it's the begin character. It can't be in the counts
-	for (size_t i = 0; i < alphabet.size() - 1; ++i) file << ", " << alphabet[i];
-	file << std::endl;
-	std::stringstream line;
-	for (const auto& kv : m) {
-		raw_seq_t leftPad{};
-		raw_seq_t rightPad{};
-		auto decoded = decodeSequenceView(kv.first, alpha);
-		if (decoded[0] == '[')
-			leftPad = raw_seq_t(k - decoded.size(), '[');
-		else if (decoded[decoded.size() - 1] == ']')
-			rightPad = raw_seq_t(k - decoded.size(), ']');
 
-		line << leftPad << decoded << rightPad;
-		for (size_t i = 0; i < kv.second.size() - 1; ++i) line << ", " << kv.second[i];
-		line << "\n";
+	// Title line:
+	// KMER, char0, char1, char2, ..., ']'
+	// we ignore the last column since it's the begin character. It can't be in the counts
+	std::fprintf(file, "%s", "kmer");
+	for (size_t i = 0; i < alphabet.size() - 1; ++i) fprintf(file, ", %c", alphabet[i]);
+	std::fprintf(file, "%s", "\n");
+
+	int c = 0;
+	std::string buff;
+	for (const auto& kv : m) {
+		auto decoded = decodeSequenceView(kv.first, alpha);
+		auto leftpad = raw_seq_t(k - decoded.size(), '[');
+		buff.insert(buff.end(), leftpad.begin(), leftpad.end());
+		buff.insert(buff.end(), decoded.begin(), decoded.end());
+
+		for (size_t i = 0; i < kv.second.size() - 1; ++i)
+			buff += ", " + std::to_string(kv.second[i]);
+		buff += "\n";
 
 		if (++c % CHUNKSIZE == 0) {
-			file << line.str() << std::flush;
-			line = std::stringstream();
+			std::fwrite(buff.c_str(), 1, buff.size(), file);
+			buff.clear();
 			spinner.set_progress(static_cast<int>(((float)c / (float)m.size()) * 100));
 		}
 	}
-	file << line.str() << std::flush;
+	std::fwrite(buff.c_str(), 1, buff.size(), file);
+	std::fclose(file);
 	spinner.set_option(option::ForegroundColor{Color::green});
 	spinner.set_option(option::PrefixText{"✔"});
 	spinner.set_option(option::ShowSpinner{false});
