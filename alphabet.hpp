@@ -1,7 +1,8 @@
+#pragma once
 #include <array>
+#include <cassert>
 #include <sstream>
 #include <vector>
-#include <cassert>
 
 // static_for helper
 template <std::size_t N> struct num { static const constexpr auto value = N; };
@@ -61,6 +62,7 @@ struct Alpha {
 	}
 
 	template <Alphabet alpha> constexpr inline char decode(const int8_t& c) const {
+		if (c < 0) return '*';
 		return std::get<alpha>(alphabets)[c];
 	}
 };
