@@ -15,7 +15,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -g -Wextra -pedantic")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -Wall -Wextra -pedantic")
 
-
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/external")
 
 add_executable(kmap main.cpp)
+target_link_libraries(kmap PUBLIC ${CMAKE_THREAD_LIBS_INIT})
