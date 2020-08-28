@@ -299,7 +299,7 @@ inline void dumpMultiMap(const multikmap_t& m, const std::vector<std::string>& n
 	{  // write header line
 		// KMER, dataset, char0, char1, char2, ..., ']'
 		// we ignore the last column since it's the begin character. It can't be in the counts
-		std::fprintf(file, "%s", "kmer");
+		std::fprintf(file, "%s", "kmer, dataset");
 		for (size_t i = 0; i < alphabet.size() - 1; ++i) fprintf(file, ", %c", alphabet[i]);
 		std::fprintf(file, "%s", "\n");
 	}
