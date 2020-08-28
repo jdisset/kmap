@@ -13,7 +13,9 @@
 
 using raw_seq_t = std::vector<char>;
 using encoded_seq_t = std::vector<int8_t>;
+using dataset_t = std::vector<encoded_seq_t>;
 using namespace indicators;
+namespace fs = std::filesystem;
 
 // /!\ CAREFUL
 // we are using pointers to the list of sequences to avoid copies
@@ -39,8 +41,11 @@ struct seqview_equal {
 	}
 };
 
-using kmap_t =
-    robin_hood::unordered_map<SeqView, std::vector<size_t>, seqview_hash, seqview_equal>;
+template <typename V>
+using seqmap_t = robin_hood::unordered_map<SeqView, V, seqview_hash, seqview_equal>;
+
+using kmap_t = seqmap_t<std::vector<size_t>>;
+using multikmap_t = seqmap_t<std::vector<std::vector<size_t>>>;
 
 // encode / decode. Important for 2 reasons:
 // - normalizing uppercase & lowercases
@@ -77,14 +82,10 @@ inline raw_seq_t decodeSequenceView(const SeqView& s, const Alphabet& alpha) {
 	return r;
 }
 
-inline std::vector<encoded_seq_t> readFasta(const std::string& filepath,
-                                            const Alphabet& alpha) {
-	std::filesystem::path p{filepath};
-	ProgressSpinner spinner{option::PostfixText{std::string("Reading ") + p.u8string()},
-	                        option::ForegroundColor{Color::yellow},
-	                        option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
-
-	size_t filesize = std::filesystem::file_size(p);
+template <typename B>
+std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet& alpha,
+                                     B* progress) {
+	fs::path p{filepath};
 
 	std::vector<encoded_seq_t> res;
 
@@ -100,23 +101,70 @@ inline std::vector<encoded_seq_t> readFasta(const std::string& filepath,
 			if (currentSeq.size() > 0) {
 				res.push_back(encodeSequence(currentSeq, alpha));
 				currentSeq = raw_seq_t();
-				spinner.set_progress(
-				    static_cast<int>(((float)totalBytesRead / (float)filesize) * 100));
+				progress->tick(totalBytesRead);
+				totalBytesRead = 0;
 			}
 		} else {
 			currentSeq.insert(currentSeq.end(), line.begin(), line.end());
 		}
 	}
-	spinner.set_option(option::ForegroundColor{Color::green});
-	spinner.set_option(option::PrefixText{"✔"});
-	spinner.set_option(option::ShowSpinner{false});
-	spinner.set_option(option::ShowPercentage{false});
-	spinner.set_option(option::PostfixText{std::string("Loaded ") +
-	                                       std::to_string(res.size()) +
-	                                       std::string(" sequences from ") + p.u8string()});
-	spinner.mark_as_completed();
 
 	return res;
+}
+
+std::pair<std::vector<dataset_t>, std::vector<std::string>> readDatasets(
+    std::string inputFile, Alphabet alpha) {
+	// inputFile contains the list of all datasets files, relative to its location
+
+	fs::path filePath{fs::absolute(fs::path(inputFile))};
+	auto p = filePath.parent_path();
+
+	std::vector<fs::path> datasets;
+	std::ifstream file(filePath.c_str());
+	std::string line;
+
+	size_t totalFileSize = 0;
+	while (std::getline(file, line)) {
+		fs::path datapath{p};
+		datapath /= line;
+		datasets.push_back(datapath);
+		totalFileSize += fs::file_size(datapath);
+	}
+
+	std::vector<dataset_t> alldatasets;
+	std::vector<std::string> allnames;
+
+	ProgressBar mainbar{option::BarWidth{50},
+	                    option::Start{"["},
+	                    option::Fill{"■"},
+	                    option::Lead{"■"},
+	                    option::Remainder{"-"},
+	                    option::End{"]"},
+	                    option::PostfixText{"Loading datasets"},
+	                    option::ShowElapsedTime{true},
+	                    option::ForegroundColor{Color::cyan},
+	                    option::MaxProgress{totalFileSize},
+	                    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
+
+	for (size_t i = 0; i < datasets.size(); ++i) {
+		allnames.push_back(datasets[i].filename());
+		mainbar.set_option(option::PostfixText{"Loading " + allnames[i]});
+		alldatasets.push_back(readFasta(datasets[i].c_str(), alpha, &mainbar));
+	}
+
+	mainbar.set_option(option::ForegroundColor{Color::green});
+	mainbar.set_option(option::PrefixText{"✔ " + std::to_string(alldatasets.size()) +
+	                                      " datasets loaded in memory"});
+	mainbar.set_option(option::BarWidth{0});
+	mainbar.set_option(option::Fill{""});
+	mainbar.set_option(option::Lead{""});
+	mainbar.set_option(option::Start{""});
+	mainbar.set_option(option::End{""});
+	mainbar.set_option(option::ShowPercentage{false});
+	mainbar.set_option(option::PostfixText{"                              "});
+	mainbar.mark_as_completed();
+
+	return {alldatasets, allnames};
 }
 
 // generate N random dna sequences of size L
@@ -134,7 +182,7 @@ inline std::vector<encoded_seq_t> randomDNASequences(int L, int N) {
 	return allseqs;
 }
 
-inline void dump(const kmap_t& m, int k, Alphabet alpha, std::string outputpath) {
+inline void dumpMap(const kmap_t& m, int k, Alphabet alpha, std::string outputpath) {
 	const int CHUNKSIZE = 10000;
 
 	// std::ofstream file(outputpath);
@@ -185,10 +233,6 @@ inline void dump(const kmap_t& m, int k, Alphabet alpha, std::string outputpath)
 }
 
 inline void collapseMaps(std::vector<kmap_t>& maps) {
-	ProgressSpinner spinner{option::PostfixText{"Merging all K-Maps"},
-	                        option::ForegroundColor{Color::yellow},
-	                        option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
-
 	kmap_t& res = maps[0];
 	for (size_t m = 1; m < maps.size(); ++m) {
 		for (auto& kv : maps[m]) {
@@ -199,14 +243,111 @@ inline void collapseMaps(std::vector<kmap_t>& maps) {
 			} else
 				res.insert(std::move(kv));
 		}
-		spinner.set_progress(static_cast<int>(((float)m / (float)maps.size()) * 100));
 	}
 	maps.resize(1);
+}
 
-	spinner.set_option(option::ForegroundColor{Color::green});
-	spinner.set_option(option::PrefixText{"✔"});
-	spinner.set_option(option::ShowSpinner{false});
-	spinner.set_option(option::ShowPercentage{false});
-	spinner.set_option(option::PostfixText{"All maps merged!"});
-	spinner.mark_as_completed();
+inline multikmap_t mergeMaps(const std::vector<kmap_t>& maps) {
+	ProgressSpinner spinner{
+	    option::PostfixText{"Merging " + std::to_string(maps.size()) + " K-Maps"},
+	    option::ForegroundColor{Color::yellow}, option::ShowElapsedTime{true},
+	    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
+
+	multikmap_t res;
+	for (size_t m = 0; m < maps.size(); ++m) {
+		for (auto& kv : maps[m]) {
+			if (res.count(kv.first))
+				res[kv.first][m] = kv.second;
+			else
+				res[kv.first] = std::vector<std::vector<size_t>>(maps.size());
+		}
+		spinner.set_progress(static_cast<int>(((float)m / (float)maps.size()) * 100));
+	}
+
+	{  // spinner update
+		spinner.set_option(option::ForegroundColor{Color::green});
+		spinner.set_option(option::PrefixText{"✔ All kmaps merged"});
+		spinner.set_option(option::ShowSpinner{false});
+		spinner.set_option(option::ShowPercentage{false});
+		spinner.set_option(option::PostfixText{"              "});
+		spinner.mark_as_completed();
+	}
+	return res;
+}
+
+inline void dumpMultiMap(const multikmap_t& m, const std::vector<std::string>& names,
+                         int k, Alphabet alpha, std::string outputpath) {
+	const int CHUNKSIZE = 2000;
+
+	std::FILE* file = std::fopen(outputpath.c_str(), "w");
+	if (!file) throw std::runtime_error("Error opening output file");
+
+	ProgressBar mainbar{option::BarWidth{50},
+	                    option::Start{"["},
+	                    option::Fill{"■"},
+	                    option::Lead{"■"},
+	                    option::Remainder{"-"},
+	                    option::End{"]"},
+	                    option::PostfixText{"Writing to " + outputpath},
+	                    option::ShowElapsedTime{true},
+	                    option::ForegroundColor{Color::cyan},
+	                    option::MaxProgress{m.size()},
+	                    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
+
+	auto alphabet = Alpha::getAlphabet(alpha);
+
+	{  // write header line
+		// KMER, dataset, char0, char1, char2, ..., ']'
+		// we ignore the last column since it's the begin character. It can't be in the counts
+		std::fprintf(file, "%s", "kmer");
+		for (size_t i = 0; i < alphabet.size() - 1; ++i) fprintf(file, ", %c", alphabet[i]);
+		std::fprintf(file, "%s", "\n");
+	}
+
+	int c = 0;
+	std::string buff;
+
+	for (const auto& kv : m) {
+		auto decoded = decodeSequenceView(kv.first, alpha);
+		auto leftpad = raw_seq_t(k - decoded.size(), '[');
+		std::string kmer;
+		kmer.insert(kmer.end(), leftpad.begin(), leftpad.end());
+		kmer.insert(kmer.end(), decoded.begin(), decoded.end());
+
+		assert(names.size() == kv.second.size());
+
+		for (size_t i = 0; i < kv.second.size(); ++i) {  // for each dataset
+			auto& counts = kv.second[i];
+			if (counts.size() > 0) {  // not all datasets will have this kmer
+				buff += kmer;
+				buff += ", " + names[i];
+				for (size_t j = 0; j < counts.size() - 1; ++j) {
+					buff += ", " + std::to_string(counts[j]);
+				}
+				buff += "\n";
+			}
+		}
+
+		if (++c % CHUNKSIZE == 0) {
+			std::fwrite(buff.c_str(), 1, buff.size(), file);
+			buff.clear();
+			mainbar.tick(CHUNKSIZE);
+		}
+	}
+	std::fwrite(buff.c_str(), 1, buff.size(), file);
+	std::fclose(file);
+
+	{  // final spinner update
+
+		mainbar.set_option(option::ForegroundColor{Color::green});
+		mainbar.set_option(option::PrefixText{"✔ KMap written to " + outputpath});
+		mainbar.set_option(option::BarWidth{0});
+		mainbar.set_option(option::Fill{""});
+		mainbar.set_option(option::Lead{""});
+		mainbar.set_option(option::Start{""});
+		mainbar.set_option(option::End{""});
+		mainbar.set_option(option::ShowPercentage{false});
+		mainbar.set_option(option::PostfixText{"                              "});
+		mainbar.mark_as_completed();
+	}
 }

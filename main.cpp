@@ -9,6 +9,8 @@
 
 #include "utils.hpp"
 
+using namespace indicators;
+
 // computeKMap takes a vector of encoded sequences
 // first letter of an ecoded sequence is the prepend symbol, last is the append symbol
 // there's no need for actually prepending/appending all k symbols
@@ -40,38 +42,62 @@ void computeKMap(const std::vector<encoded_seq_t>& seqs, int k, Alphabet alpha,
 	}
 }
 
-// overload of computeKMap that builds and returns a kmap
-kmap_t computeKMap(const std::vector<encoded_seq_t>& seqs, int k, Alphabet alpha) {
-	kmap_t res;
-	computeKMap(seqs, k, alpha, 0, seqs.size(), res);
-	return res;
+void computeDatasetKmap(const dataset_t& dataset, kmap_t& outmap, int K, Alphabet alpha,
+                        size_t nbThreads, size_t nbSeqPerTask, ProgressBar& mainbar) {
+	TinyPool::ThreadPool tp{nbThreads};
+	std::vector<kmap_t> allmaps(tp.nThreads);
+	for (size_t i = 0; i < dataset.size(); i += nbSeqPerTask) {
+		tp.push_work(
+		    [i, K, nbSeqPerTask, alpha, &dataset, &allmaps, &mainbar](size_t procId) {
+			    const size_t lower = i;
+			    const size_t upper = std::min(i + nbSeqPerTask, dataset.size());
+			    computeKMap(dataset, K, alpha, lower, upper, allmaps[procId]);
+			    int ticksize = 0;
+			    for (size_t j = lower; j < upper; ++j) ticksize += dataset[j].size();
+			    mainbar.tick(ticksize);
+		    });
+	}
+	tp.waitAll();
+
+	collapseMaps(allmaps);
+	outmap = kmap_t(std::move(allmaps[0]));
 }
 
 int main(int argc, char** argv) {
-	size_t NB_SEQUENCES_PER_TASK = 10;
+	size_t nbSeqPerTask = 10;
 	int K = 40;
-	unsigned int nbThreads = 1;
+	unsigned int nbSeqThreads = 1;
+	unsigned int nbGlobalThreads = 1;
 	bool progress = true;
 	Alphabet alpha = Alphabet::dna;
 	std::string outputFile;
+	std::string inputFile;
 
 	cxxopts::Options options(
 	    "kmap", "computes all kmers and their associated next character count");
 
 	options.add_options()("k", "k as in K-mers, i.e their size",
 	                      cxxopts::value<int>(K)->default_value("30"))(
-	    "i,input", "input fasta file path", cxxopts::value<std::string>())(
+	    "i,input",
+	    "input file listing each dataset's path, one per line. Paths should be either "
+	    "absolute or relative to the location of the input file itself",
+	    cxxopts::value<std::string>(inputFile))(
 	    "o,output", "output file path",
 	    cxxopts::value<std::string>(outputFile)->default_value("kmap_out.csv"))(
 	    "p,progress", "show progress output",
 	    cxxopts::value<bool>(progress)->default_value("true"))(
 	    "a,alphabet", "alphabet: dna (default), rna or protein",
 	    cxxopts::value<std::string>()->default_value("dna"))(
-	    "t", "number of threads",
-	    cxxopts::value<unsigned int>(nbThreads)->default_value("1"))(
+	    "t,seqthreads",
+	    "Number of threads to deploy when processing a dataset. Total number of threads = "
+	    "--nparallel x --seqthreads",
+	    cxxopts::value<unsigned int>(nbSeqThreads)->default_value("1"))(
+	    "n,nparallel",
+	    "How many datasets to process in parallel. Total number of threads = "
+	    "--nparallel x --seqthreads",
+	    cxxopts::value<unsigned int>(nbGlobalThreads)->default_value("1"))(
 	    "c,chunksize", "number of sequences per subtask. Only useful with multithreaded.",
-	    cxxopts::value<size_t>(NB_SEQUENCES_PER_TASK)->default_value("20"))("h,help",
-	                                                                        "Print usage");
+	    cxxopts::value<size_t>(nbSeqPerTask)->default_value("20"))("h,help", "Print usage");
 
 	auto opt = options.parse(argc, argv);
 
@@ -79,9 +105,11 @@ int main(int argc, char** argv) {
 		std::cout << options.help() << std::endl;
 		exit(0);
 	}
+
 	if (!opt.count("input")) {
-		std::cerr << "ERROR: An input fasta file is required!!" << std::endl;
-		std::cout << options.help() << std::endl;
+		std::cerr << "ERROR: An input file containing the list of datasets is required! Call "
+		             "with --help for list of options."
+		          << std::endl;
 		exit(1);
 	}
 
@@ -98,46 +126,52 @@ int main(int argc, char** argv) {
 
 	show_console_cursor(false);
 
-	auto allseqs = readFasta(opt["input"].as<std::string>(), alpha);
+	auto [alldatasets, allnames] = readDatasets(inputFile, alpha);
 
-	// progress bar
-	using namespace indicators;
+	std::vector<kmap_t> allkmaps(alldatasets.size());
 
 	size_t totalTicks = 0;
-	for (const auto& s : allseqs) totalTicks += s.size();
+	for (const auto& d : alldatasets)
+		for (const auto& s : d) totalTicks += s.size();
 
-	ProgressBar bar{option::BarWidth{50},
-	                option::Start{"["},
-	                option::Fill{"■"},
-	                option::Lead{"■"},
-	                option::Remainder{"-"},
-	                option::End{"]"},
-	                option::PostfixText{"Computing hashes + counts"},
-	                option::ShowElapsedTime{true},
-	                option::ForegroundColor{Color::cyan},
-	                option::MaxProgress{totalTicks},
-	                option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
+	ProgressBar mainbar{option::BarWidth{50},
+	                    option::Start{"["},
+	                    option::Fill{"■"},
+	                    option::Lead{"■"},
+	                    option::Remainder{"-"},
+	                    option::End{"]"},
+	                    option::PostfixText{"Hashing datasets"},
+	                    option::ShowElapsedTime{true},
+	                    option::ForegroundColor{Color::cyan},
+	                    option::MaxProgress{totalTicks + 1},
+	                    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
 
-	// setup parallel processing
-	TinyPool::ThreadPool tp{nbThreads};
-	std::vector<kmap_t> allmaps(nbThreads);
+	// set up thread pool
+	TinyPool::ThreadPool tp{nbGlobalThreads};
 
-	for (size_t i = 0; i < allseqs.size(); i += NB_SEQUENCES_PER_TASK) {
-		tp.push_work(
-		    [i, K, NB_SEQUENCES_PER_TASK, alpha, &allseqs, &allmaps, &bar](size_t procId) {
-			    const size_t lower = i;
-			    const size_t upper = std::min(i + NB_SEQUENCES_PER_TASK, allseqs.size());
-			    computeKMap(allseqs, K, alpha, lower, upper, allmaps[procId]);
-			    int ticksize = 0;
-			    for (size_t j = lower; j < upper; ++j) ticksize += allseqs[j].size();
-			    bar.tick(ticksize);
-		    });
+	for (size_t i = 0; i < alldatasets.size(); ++i) {
+		tp.push_work([i, K, nbSeqPerTask, nbSeqThreads, alpha, &alldatasets = alldatasets,
+		              &allkmaps, &mainbar](size_t) {
+			computeDatasetKmap(alldatasets[i], allkmaps[i], K, alpha, nbSeqThreads,
+			                   nbSeqPerTask, mainbar);
+		});
 	}
 	tp.waitAll();
 
-	collapseMaps(allmaps);
+	mainbar.set_option(option::ForegroundColor{Color::green});
+	mainbar.set_option(option::PrefixText{"✔ All datasets hashed"});
+	mainbar.set_option(option::BarWidth{0});
+	mainbar.set_option(option::Fill{""});
+	mainbar.set_option(option::Lead{""});
+	mainbar.set_option(option::Start{""});
+	mainbar.set_option(option::End{""});
+	mainbar.set_option(option::ShowPercentage{false});
+	mainbar.set_option(option::PostfixText{"                              "});
+	mainbar.mark_as_completed();
 
-	dump(allmaps[0], K, alpha, outputFile);
+	multikmap_t result = mergeMaps(allkmaps);
+
+	dumpMultiMap(result, allnames, K, alpha, outputFile);
 
 	show_console_cursor(true);
 	return 0;

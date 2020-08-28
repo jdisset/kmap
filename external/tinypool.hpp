@@ -139,6 +139,10 @@ struct ThreadPool {
 	}
 
 	template <typename F> void push_work(F&& f) {
+		if (nThreads <= 1){
+			f(0);
+			return;
+		}
 		auto i = index++;
 		runningTasks++;
 		for (size_t n = 0; n < nThreads * K; ++n) {
