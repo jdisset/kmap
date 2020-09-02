@@ -107,8 +107,8 @@ std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet
 	};
 
 	while (std::getline(file, line)) {
+		totalBytesRead += line.size();
 		if (line[0] == '>') {
-			totalBytesRead += line.size() + currentSeq.size();
 			recordSeq();
 		} else {
 			currentSeq.insert(currentSeq.end(), line.begin(), line.end());
@@ -270,7 +270,8 @@ inline multikmap_t mergeMaps(const std::vector<kmap_t>& maps) {
 				res[kv.first][m] = kv.second;
 			}
 		}
-		spinner.set_progress(static_cast<int>(((float)m / (float)maps.size()) * 100));
+		spinner.set_progress(
+		    std::min(100, static_cast<int>(((float)m / (float)maps.size()) * 100)));
 	}
 
 	{  // spinner update
@@ -280,7 +281,7 @@ inline multikmap_t mergeMaps(const std::vector<kmap_t>& maps) {
 		                                      " entries)"});
 		spinner.set_option(option::ShowSpinner{false});
 		spinner.set_option(option::ShowPercentage{false});
-		spinner.set_option(option::PostfixText{"              "});
+		spinner.set_option(option::PostfixText{""});
 		spinner.mark_as_completed();
 	}
 	return res;
@@ -302,7 +303,7 @@ inline void dumpMultiMap(const multikmap_t& m, const std::vector<std::string>& n
 	                    option::PostfixText{"Writing to " + outputpath},
 	                    option::ShowElapsedTime{true},
 	                    option::ForegroundColor{Color::cyan},
-	                    option::MaxProgress{m.size()},
+	                    option::MaxProgress{m.size() + 1},
 	                    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
 
 	auto alphabet = Alpha::getAlphabet(alpha);
@@ -346,6 +347,7 @@ inline void dumpMultiMap(const multikmap_t& m, const std::vector<std::string>& n
 		}
 	}
 	std::fwrite(buff.c_str(), 1, buff.size(), file);
+	mainbar.tick(c);
 	std::fclose(file);
 
 	{  // final spinner update
