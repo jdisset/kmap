@@ -44,8 +44,10 @@ struct seqview_equal {
 template <typename V>
 using seqmap_t = robin_hood::unordered_map<SeqView, V, seqview_hash, seqview_equal>;
 
-using kmap_t = seqmap_t<std::vector<size_t>>;
-using multikmap_t = seqmap_t<std::vector<std::vector<size_t>>>;
+using kmap_t = seqmap_t<std::vector<size_t>>;  // SeqView -> counts
+
+using multikmap_t =
+    seqmap_t<std::vector<std::vector<size_t>>>;  // SeqView -> counts per dataset
 
 // encode / decode. Important for 2 reasons:
 // - normalizing uppercase & lowercases
@@ -95,19 +97,24 @@ std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet
 	size_t totalBytesRead = 0;
 	raw_seq_t currentSeq{};
 
+	auto recordSeq = [&]() {
+		if (currentSeq.size() > 0) {
+			res.push_back(encodeSequence(currentSeq, alpha));
+			currentSeq = raw_seq_t();
+			progress->tick(totalBytesRead);
+			totalBytesRead = 0;
+		}
+	};
+
 	while (std::getline(file, line)) {
 		if (line[0] == '>') {
 			totalBytesRead += line.size() + currentSeq.size();
-			if (currentSeq.size() > 0) {
-				res.push_back(encodeSequence(currentSeq, alpha));
-				currentSeq = raw_seq_t();
-				progress->tick(totalBytesRead);
-				totalBytesRead = 0;
-			}
+			recordSeq();
 		} else {
 			currentSeq.insert(currentSeq.end(), line.begin(), line.end());
 		}
 	}
+	recordSeq();
 
 	return res;
 }
@@ -253,20 +260,24 @@ inline multikmap_t mergeMaps(const std::vector<kmap_t>& maps) {
 	    option::ForegroundColor{Color::yellow}, option::ShowElapsedTime{true},
 	    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
 
-	multikmap_t res;
+	multikmap_t res;  // seq -> counts for each dataset
 	for (size_t m = 0; m < maps.size(); ++m) {
 		for (auto& kv : maps[m]) {
 			if (res.count(kv.first))
 				res[kv.first][m] = kv.second;
-			else
+			else {
 				res[kv.first] = std::vector<std::vector<size_t>>(maps.size());
+				res[kv.first][m] = kv.second;
+			}
 		}
 		spinner.set_progress(static_cast<int>(((float)m / (float)maps.size()) * 100));
 	}
 
 	{  // spinner update
 		spinner.set_option(option::ForegroundColor{Color::green});
-		spinner.set_option(option::PrefixText{"✔ All kmaps merged"});
+		spinner.set_option(option::PrefixText{"✔ " + std::to_string(maps.size()) +
+		                                      " kmaps merged (" + std::to_string(res.size()) +
+		                                      " entries)"});
 		spinner.set_option(option::ShowSpinner{false});
 		spinner.set_option(option::ShowPercentage{false});
 		spinner.set_option(option::PostfixText{"              "});
