@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <indicators.hpp>
+#include <memory>
 #include <random>
 #include <robinhood.hpp>
 #include <unordered_map>
