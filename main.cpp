@@ -70,8 +70,11 @@ int main(int argc, char** argv) {
 	unsigned int nbGlobalThreads = 1;
 	bool progress = true;
 	Alphabet alpha = Alphabet::dna;
-	std::string outputFile;
 	std::string inputFile;
+	std::string outputFile;
+
+	enum class OutFormat { multimap, sparsematrix };
+	OutFormat outformat = OutFormat::sparsematrix;
 
 	cxxopts::Options options(
 	    "kmap", "computes all kmers and their associated next character count");
@@ -84,6 +87,8 @@ int main(int argc, char** argv) {
 	    cxxopts::value<std::string>(inputFile))(
 	    "o,output", "output file path",
 	    cxxopts::value<std::string>(outputFile)->default_value("kmap_out.csv"))(
+	    "f,output-format", "output format (multimap, sparsematrix). Default = sparsematrix",
+	    cxxopts::value<std::string>()->default_value("sparsematrix"))(
 	    "p,progress", "show progress output",
 	    cxxopts::value<bool>(progress)->default_value("true"))(
 	    "a,alphabet", "alphabet: dna (default), rna or protein",
@@ -124,6 +129,16 @@ int main(int argc, char** argv) {
 		exit(1);
 	}
 
+	if (opt["output-format"].as<std::string>() == "multimap") {
+		outformat = OutFormat::multimap;
+	} else if (opt["output-format"].as<std::string>() == "sparsematrix") {
+		outformat = OutFormat::sparsematrix;
+	} else {
+		std::cerr << "Invalid output format \"" << opt["output-format"].as<std::string>()
+		          << "\"; should be multimap or sparsematrix" << std::endl;
+		exit(1);
+	}
+
 	show_console_cursor(false);
 
 	auto [alldatasets, allnames] = readDatasets(inputFile, alpha);
@@ -149,6 +164,7 @@ int main(int argc, char** argv) {
 	// set up thread pool
 	TinyPool::ThreadPool tp{nbGlobalThreads};
 
+	// compute a kmap (in allkmaps) for each dataset, using the threadpool.
 	for (size_t i = 0; i < alldatasets.size(); ++i) {
 		tp.push_work([i, K, nbSeqPerTask, nbSeqThreads, alpha, &alldatasets = alldatasets,
 		              &allkmaps, &mainbar](size_t) {
@@ -171,7 +187,18 @@ int main(int argc, char** argv) {
 
 	multikmap_t result = mergeMaps(allkmaps);
 
-	dumpMultiMap(result, allnames, K, alpha, outputFile);
+	// output result
+	switch (outformat) {
+		case OutFormat::multimap:
+			dumpMultiMap(result, allnames, K, alpha, outputFile);
+			break;
+
+		default:
+			std::cerr << "Output format not recognized, using sparsematrix" << std::endl;
+		case OutFormat::sparsematrix:
+			dumpMultiMap_sparseMatrix(result, K, alpha, outputFile);
+			break;
+	}
 
 	show_console_cursor(true);
 	return 0;

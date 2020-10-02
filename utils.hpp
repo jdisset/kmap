@@ -255,6 +255,7 @@ inline void collapseMaps(std::vector<kmap_t>& maps) {
 	maps.resize(1);
 }
 
+// merge multiple kmaps into one multikmap
 inline multikmap_t mergeMaps(const std::vector<kmap_t>& maps) {
 	ProgressSpinner spinner{
 	    option::PostfixText{"Merging " + std::to_string(maps.size()) + " K-Maps"},
@@ -264,12 +265,9 @@ inline multikmap_t mergeMaps(const std::vector<kmap_t>& maps) {
 	multikmap_t res;  // seq -> counts for each dataset
 	for (size_t m = 0; m < maps.size(); ++m) {
 		for (auto& kv : maps[m]) {
-			if (res.count(kv.first))
-				res[kv.first][m] = kv.second;
-			else {
+			if (!res.count(kv.first))
 				res[kv.first] = std::vector<std::vector<size_t>>(maps.size());
-				res[kv.first][m] = kv.second;
-			}
+			res[kv.first][m] = kv.second;
 		}
 		spinner.set_progress(
 		    std::min(100, static_cast<int>(((float)m / (float)maps.size()) * 100)));
@@ -353,6 +351,85 @@ inline void dumpMultiMap(const multikmap_t& m, const std::vector<std::string>& n
 
 	{  // final spinner update
 
+		mainbar.set_option(option::ForegroundColor{Color::green});
+		mainbar.set_option(option::PrefixText{"✔ KMap written to " + outputpath});
+		mainbar.set_option(option::BarWidth{0});
+		mainbar.set_option(option::Fill{""});
+		mainbar.set_option(option::Lead{""});
+		mainbar.set_option(option::Start{""});
+		mainbar.set_option(option::End{""});
+		mainbar.set_option(option::ShowPercentage{false});
+		mainbar.set_option(option::PostfixText{"                              "});
+		mainbar.mark_as_completed();
+	}
+}
+
+// outputs in sparse matrix format:
+// k-mer, sparse matrix indices, sparse matrix values
+// the sparse matrix contains the count of every next letter for every dataset
+inline void dumpMultiMap_sparseMatrix(const multikmap_t& m, int k, Alphabet alpha,
+                                      std::string outputpath) {
+	const int CHUNKSIZE = 500;
+
+	std::FILE* file = std::fopen(outputpath.c_str(), "w");
+	if (!file) throw std::runtime_error("Error opening output file");
+
+	ProgressBar mainbar{option::BarWidth{50},
+	                    option::Start{"["},
+	                    option::Fill{"■"},
+	                    option::Lead{"■"},
+	                    option::Remainder{"-"},
+	                    option::End{"]"},
+	                    option::PostfixText{"Writing to " + outputpath},
+	                    option::ShowElapsedTime{true},
+	                    option::ForegroundColor{Color::cyan},
+	                    option::MaxProgress{m.size() + 1},
+	                    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
+
+	auto alphabet = Alpha::getAlphabet(alpha);
+
+	// write header line
+	std::fprintf(file, "kmer, count_mat_indices, count_mat_values\n");
+
+	int c = 0;
+	std::string buff;
+
+	for (const auto& kv : m) {  // kv: kmer -> vec of char counts per dataset
+		auto decoded = decodeSequenceView(kv.first, alpha);
+		auto leftpad = raw_seq_t(k - decoded.size(), '[');
+		std::string kmer;
+		kmer.insert(kmer.end(), leftpad.begin(), leftpad.end());
+		kmer.insert(kmer.end(), decoded.begin(), decoded.end());
+
+		buff += kmer + "; [";
+		std::vector<size_t> allcounts;
+		for (size_t i = 0; i < kv.second.size(); ++i) {  // for each dataset
+			const auto& counts = kv.second[i];             // counts: = vector of char counts
+			if (counts.size() > 0) {                       // if datasets has this kmer
+				for (size_t j = 0; j < counts.size() - 1; ++j) {
+					if (counts[j] > 0) {  // if this character appears
+						buff += "[" + std::to_string(i) + "," + std::to_string(j) + "],";
+						allcounts.push_back(counts[j]);
+					}
+				}
+			}
+		}
+		buff.pop_back();  // removes trailing comma
+		buff += "]; [";
+		for (const auto& c : allcounts) buff += std::to_string(c) + ",";
+		buff.pop_back();  // removes trailing comma
+		buff += "]\n";
+		if (++c % CHUNKSIZE == 0) {
+			std::fwrite(buff.c_str(), 1, buff.size(), file);
+			buff.clear();
+			mainbar.tick(CHUNKSIZE);
+		}
+	}
+	std::fwrite(buff.c_str(), 1, buff.size(), file);
+	mainbar.tick(c);
+	std::fclose(file);
+
+	{  // final spinner update
 		mainbar.set_option(option::ForegroundColor{Color::green});
 		mainbar.set_option(option::PrefixText{"✔ KMap written to " + outputpath});
 		mainbar.set_option(option::BarWidth{0});
