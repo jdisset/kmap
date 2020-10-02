@@ -11,12 +11,13 @@
 
 using namespace indicators;
 
-// computeKMap takes a vector of encoded sequences
+// computeMultiKMap takes a vector of encoded sequences
 // first letter of an ecoded sequence is the prepend symbol, last is the append symbol
 // there's no need for actually prepending/appending all k symbols
 // we also skip sequences shorter than k
-void computeKMap(const std::vector<encoded_seq_t>& seqs, int k, Alphabet alpha,
-                 size_t lowerBound, size_t upperBound, kmap_t& res) {
+void computeMultiKMap(const std::vector<encoded_seq_t>& seqs, size_t nbDatasets,
+                      size_t datasetId, int k, Alphabet alpha, size_t lowerBound,
+                      size_t upperBound, multikmap_t& res) {
 	if (k <= 0) throw std::invalid_argument("k must be > 0 ");
 	const auto ALPHABET_SIZE = alphaMap.alphabetSizes[alpha];
 	for (size_t s = lowerBound; s < upperBound; ++s) {
@@ -34,33 +35,42 @@ void computeKMap(const std::vector<encoded_seq_t>& seqs, int k, Alphabet alpha,
 				++prevUnknownCharacter;
 
 			if (prevUnknownCharacter > k) {
-				SeqView sv{&seqs[s][left], l};
-				if (!res.count(sv)) res[sv] = std::vector<size_t>(ALPHABET_SIZE, 0);
-				res[sv][nxtchar]++;
+				seqview_t sv{&seqs[s][left], l};
+				auto& datasetCounts = res[sv][datasetId];
+				if (datasetCounts.size() == 0)
+					datasetCounts = std::vector<size_t>(ALPHABET_SIZE, 0);
+				datasetCounts[nxtchar]++;
 			}
 		}
 	}
 }
 
-void computeDatasetKmap(const dataset_t& dataset, kmap_t& outmap, int K, Alphabet alpha,
-                        size_t nbThreads, size_t nbSeqPerTask, ProgressBar& mainbar) {
-	TinyPool::ThreadPool tp{nbThreads};
-	std::vector<kmap_t> allmaps(tp.nThreads);
-	for (size_t i = 0; i < dataset.size(); i += nbSeqPerTask) {
-		tp.push_work(
-		    [i, K, nbSeqPerTask, alpha, &dataset, &allmaps, &mainbar](size_t procId) {
-			    const size_t lower = i;
-			    const size_t upper = std::min(i + nbSeqPerTask, dataset.size());
-			    computeKMap(dataset, K, alpha, lower, upper, allmaps[procId]);
-			    int ticksize = 0;
-			    for (size_t j = lower; j < upper; ++j) ticksize += dataset[j].size();
-			    mainbar.tick(ticksize);
-		    });
+void computeDatasetMultiKmap(const std::vector<dataset_t>& datasets, size_t datasetId,
+                             multikmap_t& outmap, int K, Alphabet alpha, size_t nbThreads,
+                             size_t nbSeqPerTask, ProgressBar& mainbar) {
+	if (nbThreads > 1) {
+		TinyPool::ThreadPool tp{nbThreads};
+		std::vector<multikmap_t> allmaps(tp.nThreads);
+		for (size_t i = 0; i < datasets[datasetId].size(); i += nbSeqPerTask) {
+			tp.push_work([i, K, nbSeqPerTask, alpha, datasetId, nbDatasets = datasets.size(),
+			              &datasets, &allmaps, &mainbar](size_t procId) {
+				auto& dataset = datasets[datasetId];
+				const size_t lower = i;
+				const size_t upper = std::min(i + nbSeqPerTask, dataset.size());
+				computeMultiKMap(dataset, nbDatasets, datasetId, K, alpha, lower, upper,
+				                 allmaps[procId]);
+				int ticksize = 0;
+				for (size_t j = lower; j < upper; ++j) ticksize += dataset[j].size();
+				mainbar.tick(ticksize);
+			});
+		}
+		tp.waitAll();
+		mergeMultiMaps(outmap, allmaps);
+	} else {
+		computeMultiKMap(datasets[datasetId], datasets.size(), datasetId, K, alpha, 0,
+		                 datasets[datasetId].size(), outmap);
+		for (const auto& d : datasets[datasetId]) mainbar.tick(d.size());
 	}
-	tp.waitAll();
-
-	collapseMaps(allmaps);
-	outmap = kmap_t(std::move(allmaps[0]));
 }
 
 int main(int argc, char** argv) {
@@ -143,8 +153,6 @@ int main(int argc, char** argv) {
 
 	auto [alldatasets, allnames] = readDatasets(inputFile, alpha);
 
-	std::vector<kmap_t> allkmaps(alldatasets.size());
-
 	size_t totalTicks = 0;
 	for (const auto& d : alldatasets)
 		for (const auto& s : d) totalTicks += s.size();
@@ -164,12 +172,15 @@ int main(int argc, char** argv) {
 	// set up thread pool
 	TinyPool::ThreadPool tp{nbGlobalThreads};
 
+	// std::vector<kmap_t> allkmaps(alldatasets.size());
+	std::vector<multikmap_t> allkmaps(nbGlobalThreads);
+
 	// compute a kmap (in allkmaps) for each dataset, using the threadpool.
 	for (size_t i = 0; i < alldatasets.size(); ++i) {
 		tp.push_work([i, K, nbSeqPerTask, nbSeqThreads, alpha, &alldatasets = alldatasets,
-		              &allkmaps, &mainbar](size_t) {
-			computeDatasetKmap(alldatasets[i], allkmaps[i], K, alpha, nbSeqThreads,
-			                   nbSeqPerTask, mainbar);
+		              &allkmaps, &mainbar](size_t threadId) {
+			computeDatasetMultiKmap(alldatasets, i, allkmaps[threadId], K, alpha, nbSeqThreads,
+			                        nbSeqPerTask, mainbar);
 		});
 	}
 	tp.waitAll();
@@ -185,7 +196,9 @@ int main(int argc, char** argv) {
 	mainbar.set_option(option::PostfixText{"                              "});
 	mainbar.mark_as_completed();
 
-	multikmap_t result = mergeMaps(allkmaps);
+	// multikmap_t result = mergeMaps(allkmaps);
+	mergeMultiMaps(allkmaps[0], allkmaps, true, 1);
+	auto& result = allkmaps[0];
 
 	// output result
 	switch (outformat) {

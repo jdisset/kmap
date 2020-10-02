@@ -18,37 +18,17 @@ using dataset_t = std::vector<encoded_seq_t>;
 using namespace indicators;
 namespace fs = std::filesystem;
 
-// /!\ CAREFUL
-// we are using pointers to the list of sequences to avoid copies
-// but it means the references to the sequences MUST BE KEPT VALID
-// i.e no insertion/deletions in the sequence datastructure.
-struct SeqView {
-	const int8_t* begin = nullptr;
-	size_t length;
-	const int8_t& operator[](size_t i) const { return *(begin + i); }
-};
+using seqview_t = std::basic_string_view<int8_t>;
 
-struct seqview_hash {
-	size_t operator()(const SeqView& s) const { return xxh::xxhash<64>(s.begin, s.length); }
-};
+// template <typename... T> using umap_t = robin_hood::unordered_flat_map<T...>;
+template <typename... T> using umap_t = tsl::robin_map<T...>;
 
-struct seqview_equal {
-	bool operator()(const SeqView& s1, const SeqView& s2) const {
-		if (s1.length != s2.length) return false;
-		for (size_t i = 0; i < s1.length; ++i) {
-			if (s1[i] != s2[i]) return false;
-		}
-		return true;
-	}
-};
-
-template <typename V>
-using seqmap_t = robin_hood::unordered_map<SeqView, V, seqview_hash, seqview_equal>;
+template <typename V> using seqmap_t = robin_hood::unordered_map<seqview_t, V>;
 
 using kmap_t = seqmap_t<std::vector<size_t>>;  // SeqView -> counts
 
-using multikmap_t =
-    seqmap_t<std::vector<std::vector<size_t>>>;  // SeqView -> counts per dataset
+using multikmap_t = seqmap_t<robin_hood::unordered_map<
+    size_t, std::vector<size_t>>>;  // SeqView -> counts per dataset
 
 // encode / decode. Important for 2 reasons:
 // - normalizing uppercase & lowercases
@@ -74,14 +54,14 @@ inline raw_seq_t decodeSequence(const encoded_seq_t& s, const Alphabet& alpha) {
 	return r;
 }
 
-inline raw_seq_t decodeSequenceView(const SeqView& s, const Alphabet& alpha) {
+inline raw_seq_t decodeSequenceView(const seqview_t& s, const Alphabet& alpha) {
 	const auto decode = (alpha == Alphabet::dna) ?
 	    [](const int8_t& c) -> char { return alphaMap.decode<Alphabet::dna>(c); } :
 	    ((alpha == Alphabet::rna) ?
 	     [](const int8_t& c) -> char { return alphaMap.decode<Alphabet::rna>(c); } :
 	     [](const int8_t& c) -> char { return alphaMap.decode<Alphabet::protein>(c); });
-	raw_seq_t r(s.length);
-	for (size_t i = 0; i < s.length; ++i) r[i] = decode(s[i]);
+	raw_seq_t r(s.size());
+	for (size_t i = 0; i < s.size(); ++i) r[i] = decode(s[i]);
 	return r;
 }
 
@@ -102,8 +82,10 @@ std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet
 		if (currentSeq.size() > 0) {
 			res.push_back(encodeSequence(currentSeq, alpha));
 			currentSeq = raw_seq_t();
-			progress->tick(totalBytesRead);
-			totalBytesRead = 0;
+			if (totalBytesRead > 10000) {
+				progress->tick(totalBytesRead);
+				totalBytesRead = 0;
+			}
 		}
 	};
 
@@ -240,50 +222,61 @@ inline void dumpMap(const kmap_t& m, int k, Alphabet alpha, std::string outputpa
 	spinner.mark_as_completed();
 }
 
-inline void collapseMaps(std::vector<kmap_t>& maps) {
-	kmap_t& res = maps[0];
-	for (size_t m = 1; m < maps.size(); ++m) {
-		for (auto& kv : maps[m]) {
-			if (res.count(kv.first)) {
-				auto& r = res[kv.first];
-				assert(res[kv.first].size() == kv.second.size());
-				for (size_t i = 0; i < kv.second.size(); ++i) r[i] += kv.second[i];
-			} else
-				res.insert(std::move(kv));
+// merge multiple multikmaps into one multikmap
+inline void mergeMultiMaps(multikmap_t& res, std::vector<multikmap_t>& maps,
+                           bool enableSpinner = false, size_t startIndex = 0) {
+	size_t N = maps.size();
+
+	std::unique_ptr<ProgressBar> mainbar(nullptr);
+	if (enableSpinner) {
+		size_t entries = 0;
+		for (size_t m = startIndex; m < N; ++m) entries += maps[m].size();
+		mainbar.reset(new ProgressBar{
+		    option::BarWidth{50}, option::Start{"["}, option::Fill{"■"}, option::Lead{"■"},
+		    option::Remainder{"-"}, option::End{"]"},
+		    option::PostfixText{"Merging " + std::to_string(maps.size()) + " K-Maps"},
+		    option::ShowElapsedTime{true}, option::ForegroundColor{Color::cyan},
+		    option::MaxProgress{entries + 1},
+		    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}});
+	}
+
+	int ticks = 0;
+	for (size_t m = startIndex; m < N; ++m) {
+		for (auto& [kmer, map] : maps[m]) {
+			if (!res.count(kmer))
+				res[kmer] = map;
+			else {
+				for (auto& [dataset, counts] : map) {
+					if (res[kmer].count(dataset)) {
+						assert(res[kmer].size() == counts.size());
+						auto& ref = res[kmer][dataset];
+						for (size_t i = 0; i < counts.size(); ++i) ref[i] += counts[i];
+					} else {
+						res[kmer][dataset] = counts;
+					}
+				}
+			}
+			if (++ticks > 1000) {
+				if (mainbar) mainbar->tick(ticks);
+				ticks = 0;
+			}
 		}
-	}
-	maps.resize(1);
-}
-
-// merge multiple kmaps into one multikmap
-inline multikmap_t mergeMaps(const std::vector<kmap_t>& maps) {
-	ProgressSpinner spinner{
-	    option::PostfixText{"Merging " + std::to_string(maps.size()) + " K-Maps"},
-	    option::ForegroundColor{Color::yellow}, option::ShowElapsedTime{true},
-	    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
-
-	multikmap_t res;  // seq -> counts for each dataset
-	for (size_t m = 0; m < maps.size(); ++m) {
-		for (auto& kv : maps[m]) {
-			if (!res.count(kv.first))
-				res[kv.first] = std::vector<std::vector<size_t>>(maps.size());
-			res[kv.first][m] = kv.second;
-		}
-		spinner.set_progress(
-		    std::min(100, static_cast<int>(((float)m / (float)maps.size()) * 100)));
+		maps[m].clear();  // avoid wasting memory
 	}
 
-	{  // spinner update
-		spinner.set_option(option::ForegroundColor{Color::green});
-		spinner.set_option(option::PrefixText{"✔ " + std::to_string(maps.size()) +
-		                                      " kmaps merged (" + std::to_string(res.size()) +
-		                                      " entries)"});
-		spinner.set_option(option::ShowSpinner{false});
-		spinner.set_option(option::ShowPercentage{false});
-		spinner.set_option(option::PostfixText{""});
-		spinner.mark_as_completed();
+	if (mainbar) {  // spinner update
+		mainbar->set_option(option::ForegroundColor{Color::green});
+		mainbar->set_option(option::PrefixText{"✔ " + std::to_string(N) + " kmaps merged (" +
+		                                       std::to_string(res.size()) + " entries)"});
+		mainbar->set_option(option::BarWidth{0});
+		mainbar->set_option(option::Fill{""});
+		mainbar->set_option(option::Lead{""});
+		mainbar->set_option(option::Start{""});
+		mainbar->set_option(option::End{""});
+		mainbar->set_option(option::ShowPercentage{false});
+		mainbar->set_option(option::PostfixText{"                              "});
+		mainbar->mark_as_completed();
 	}
-	return res;
 }
 
 inline void dumpMultiMap(const multikmap_t& m, const std::vector<std::string>& names,
@@ -325,18 +318,13 @@ inline void dumpMultiMap(const multikmap_t& m, const std::vector<std::string>& n
 		kmer.insert(kmer.end(), leftpad.begin(), leftpad.end());
 		kmer.insert(kmer.end(), decoded.begin(), decoded.end());
 
-		assert(names.size() == kv.second.size());
-
-		for (size_t i = 0; i < kv.second.size(); ++i) {  // for each dataset
-			auto& counts = kv.second[i];
-			if (counts.size() > 0) {  // not all datasets will have this kmer
-				buff += kmer;
-				buff += ", " + names[i];
-				for (size_t j = 0; j < counts.size() - 1; ++j) {
-					buff += ", " + std::to_string(counts[j]);
-				}
-				buff += "\n";
+		for (const auto& [dataset, counts] : kv.second) {
+			buff += kmer;
+			buff += ", " + names[dataset];
+			for (size_t j = 0; j < counts.size() - 1; ++j) {
+				buff += ", " + std::to_string(counts[j]);
 			}
+			buff += "\n";
 		}
 
 		if (++c % CHUNKSIZE == 0) {
@@ -383,7 +371,7 @@ inline void dumpMultiMap_sparseMatrix(const multikmap_t& m, int k, Alphabet alph
 	                    option::PostfixText{"Writing to " + outputpath},
 	                    option::ShowElapsedTime{true},
 	                    option::ForegroundColor{Color::cyan},
-	                    option::MaxProgress{m.size() + 1},
+	                    option::MaxProgress{m.size() + CHUNKSIZE},
 	                    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
 
 	auto alphabet = Alpha::getAlphabet(alpha);
@@ -403,14 +391,12 @@ inline void dumpMultiMap_sparseMatrix(const multikmap_t& m, int k, Alphabet alph
 
 		buff += kmer + "; [";
 		std::vector<size_t> allcounts;
-		for (size_t i = 0; i < kv.second.size(); ++i) {  // for each dataset
-			const auto& counts = kv.second[i];             // counts: = vector of char counts
-			if (counts.size() > 0) {                       // if datasets has this kmer
-				for (size_t j = 0; j < counts.size() - 1; ++j) {
-					if (counts[j] > 0) {  // if this character appears
-						buff += "[" + std::to_string(i) + "," + std::to_string(j) + "],";
-						allcounts.push_back(counts[j]);
-					}
+		for (const auto& [dataset, counts] : kv.second) {
+			assert(counts.size() > 0);
+			for (size_t j = 0; j < counts.size() - 1; ++j) {
+				if (counts[j] > 0) {  // if this character appears
+					buff += "[" + std::to_string(dataset) + "," + std::to_string(j) + "],";
+					allcounts.push_back(counts[j]);
 				}
 			}
 		}
@@ -429,7 +415,7 @@ inline void dumpMultiMap_sparseMatrix(const multikmap_t& m, int k, Alphabet alph
 	mainbar.tick(c);
 	std::fclose(file);
 
-	{  // final spinner update
+	{  // final progress update
 		mainbar.set_option(option::ForegroundColor{Color::green});
 		mainbar.set_option(option::PrefixText{"✔ KMap written to " + outputpath});
 		mainbar.set_option(option::BarWidth{0});
