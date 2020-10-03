@@ -15,9 +15,9 @@ using namespace indicators;
 // first letter of an ecoded sequence is the prepend symbol, last is the append symbol
 // there's no need for actually prepending/appending all k symbols
 // we also skip sequences shorter than k
-void computeMultiKMap(const std::vector<encoded_seq_t>& seqs, size_t nbDatasets,
-                      size_t datasetId, int k, Alphabet alpha, size_t lowerBound,
-                      size_t upperBound, multikmap_t& res) {
+void computeMultiKMap(const std::vector<encoded_seq_t>& seqs, size_t datasetId, int k,
+                      Alphabet alpha, size_t lowerBound, size_t upperBound,
+                      multikmap_t& res) {
 	if (k <= 0) throw std::invalid_argument("k must be > 0 ");
 	const auto ALPHABET_SIZE = alphaMap.alphabetSizes[alpha];
 	for (size_t s = lowerBound; s < upperBound; ++s) {
@@ -57,8 +57,7 @@ void computeDatasetMultiKmap(const std::vector<dataset_t>& datasets, size_t data
 				auto& dataset = datasets[datasetId];
 				const size_t lower = i;
 				const size_t upper = std::min(i + nbSeqPerTask, dataset.size());
-				computeMultiKMap(dataset, nbDatasets, datasetId, K, alpha, lower, upper,
-				                 allmaps[procId]);
+				computeMultiKMap(dataset, datasetId, K, alpha, lower, upper, allmaps[procId]);
 				int ticksize = 0;
 				for (size_t j = lower; j < upper; ++j) ticksize += dataset[j].size();
 				mainbar.tick(ticksize);
@@ -67,7 +66,7 @@ void computeDatasetMultiKmap(const std::vector<dataset_t>& datasets, size_t data
 		tp.waitAll();
 		mergeMultiMaps(outmap, allmaps);
 	} else {
-		computeMultiKMap(datasets[datasetId], datasets.size(), datasetId, K, alpha, 0,
+		computeMultiKMap(datasets[datasetId], datasetId, K, alpha, 0,
 		                 datasets[datasetId].size(), outmap);
 		for (const auto& d : datasets[datasetId]) mainbar.tick(d.size());
 	}
@@ -196,7 +195,6 @@ int main(int argc, char** argv) {
 	mainbar.set_option(option::PostfixText{"                              "});
 	mainbar.mark_as_completed();
 
-	// multikmap_t result = mergeMaps(allkmaps);
 	mergeMultiMaps(allkmaps[0], allkmaps, true, 1);
 	auto& result = allkmaps[0];
 
@@ -213,6 +211,7 @@ int main(int argc, char** argv) {
 			break;
 	}
 
+	std::cerr << "Done. Cleaning up memory..." << std::endl;
 	show_console_cursor(true);
 	return 0;
 }

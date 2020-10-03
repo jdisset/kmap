@@ -7,6 +7,7 @@
 #include <memory>
 #include <random>
 #include <robinhood.hpp>
+#include <string_view>
 #include <unordered_map>
 #include <xhash.hpp>
 
@@ -20,13 +21,9 @@ namespace fs = std::filesystem;
 
 using seqview_t = std::basic_string_view<int8_t>;
 
-// template <typename... T> using umap_t = robin_hood::unordered_flat_map<T...>;
-template <typename... T> using umap_t = tsl::robin_map<T...>;
-
 template <typename V> using seqmap_t = robin_hood::unordered_map<seqview_t, V>;
 
 using kmap_t = seqmap_t<std::vector<size_t>>;  // SeqView -> counts
-
 using multikmap_t = seqmap_t<robin_hood::unordered_map<
     size_t, std::vector<size_t>>>;  // SeqView -> counts per dataset
 
@@ -244,7 +241,7 @@ inline void mergeMultiMaps(multikmap_t& res, std::vector<multikmap_t>& maps,
 	for (size_t m = startIndex; m < N; ++m) {
 		for (auto& [kmer, map] : maps[m]) {
 			if (!res.count(kmer))
-				res[kmer] = map;
+				res[kmer] = decltype(map)(std::move(map));
 			else {
 				for (auto& [dataset, counts] : map) {
 					if (res[kmer].count(dataset)) {
@@ -261,9 +258,9 @@ inline void mergeMultiMaps(multikmap_t& res, std::vector<multikmap_t>& maps,
 				ticks = 0;
 			}
 		}
-		maps[m].clear();  // avoid wasting memory
+		// maps[m].clear();  // avoid wasting memory
 	}
-
+	// maps.clear();
 	if (mainbar) {  // spinner update
 		mainbar->set_option(option::ForegroundColor{Color::green});
 		mainbar->set_option(option::PrefixText{"✔ " + std::to_string(N) + " kmaps merged (" +
@@ -405,10 +402,11 @@ inline void dumpMultiMap_sparseMatrix(const multikmap_t& m, int k, Alphabet alph
 		for (const auto& c : allcounts) buff += std::to_string(c) + ",";
 		buff.pop_back();  // removes trailing comma
 		buff += "]\n";
-		if (++c % CHUNKSIZE == 0) {
+		if (++c > CHUNKSIZE) {
 			std::fwrite(buff.c_str(), 1, buff.size(), file);
 			buff.clear();
-			mainbar.tick(CHUNKSIZE);
+			mainbar.tick(c);
+			c = 0;
 		}
 	}
 	std::fwrite(buff.c_str(), 1, buff.size(), file);
