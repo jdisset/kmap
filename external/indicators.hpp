@@ -2426,10 +2426,21 @@ template <typename Indicator> class DynamicProgress {
 		return bars_[index].get();
 	}
 
+	template <typename... Args> size_t make_bar(Args... args) {
+		std::lock_guard<std::mutex> lock{mutex_};
+		owned_bars_.push_back(std::make_unique<Indicator>(std::forward<Args>(args)...));
+		auto &b = owned_bars_.back();
+		b->multi_progress_mode_ = true;
+		bars_.push_back(*(b.get()));
+		//++incomplete_count_;
+		return bars_.size() - 1;
+	}
+
 	size_t push_back(Indicator &bar) {
 		std::lock_guard<std::mutex> lock{mutex_};
 		bar.multi_progress_mode_ = true;
 		bars_.push_back(bar);
+		//++incomplete_count_;
 		return bars_.size() - 1;
 	}
 
@@ -2456,6 +2467,7 @@ template <typename Indicator> class DynamicProgress {
 	std::atomic<bool> started_{false};
 	std::mutex mutex_;
 	std::vector<std::reference_wrapper<Indicator>> bars_;
+	std::vector<std::unique_ptr<Indicator>> owned_bars_;
 	std::atomic<size_t> total_count_{0};
 	std::atomic<size_t> incomplete_count_{0};
 
@@ -2477,17 +2489,26 @@ template <typename Indicator> class DynamicProgress {
 		auto &hide_bar_when_complete =
 		    get_value<details::ProgressBarOption::hide_bar_when_complete>();
 		if (hide_bar_when_complete) {
+
+			size_t prev_incomplete_count = incomplete_count_;
+			incomplete_count_ = 0;
+			for (auto &bar : bars_) {
+				if (!bar.get().is_completed()) ++incomplete_count_;
+			}
 			// Hide completed bars
 			if (started_) {
-				for (size_t i = 0; i < incomplete_count_; ++i)
-					std::cout << "\033[A\r\033[K" << std::flush;
+				if (prev_incomplete_count != incomplete_count_) {
+					for (size_t i = 0; i < prev_incomplete_count; ++i)
+						std::cout << "\033[A\r\033[K" << std::flush;
+				} else {  // we don't erase if not necessary to avoid blinking
+					for (size_t i = 0; i < prev_incomplete_count; ++i) std::cout << "\x1b[A";
+				}
 			}
-			incomplete_count_ = 0;
+
 			for (auto &bar : bars_) {
 				if (!bar.get().is_completed()) {
 					bar.get().print_progress(true);
 					std::cout << "\n";
-					++incomplete_count_;
 				}
 			}
 			if (!started_) started_ = true;
@@ -2508,7 +2529,6 @@ template <typename Indicator> class DynamicProgress {
 };
 
 }  // namespace indicators
-
 #pragma once
 
 // #include <indicators/details/stream_helper.hpp>
