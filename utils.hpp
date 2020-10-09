@@ -64,94 +64,88 @@ inline raw_seq_t decodeSequenceView(const seqview_t& s, const Alphabet& alpha) {
 
 template <typename B>
 std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet& alpha,
-                                     B* progress) {
+                                     B& pbars, size_t barid) {
 	fs::path p{filepath};
 
 	std::vector<encoded_seq_t> res;
 
 	std::ifstream file(filepath.c_str());
-	std::string line;
 
-	size_t totalBytesRead = 0;
+	size_t charactersRead = 0;
 	raw_seq_t currentSeq{};
 
 	auto recordSeq = [&]() {
-		if (currentSeq.size() > 0) {
-			res.push_back(encodeSequence(currentSeq, alpha));
-			currentSeq = raw_seq_t();
-			if (totalBytesRead > 10000) {
-				progress->tick(totalBytesRead);
-				totalBytesRead = 0;
-			}
-		}
+		if (currentSeq.size() > 0)
+			res.push_back(encodeSequence(std::exchange(currentSeq, {}), alpha));
 	};
 
-	while (std::getline(file, line)) {
-		totalBytesRead += line.size();
-		if (line[0] == '>') {
+	for (std::string line{}; std::getline(file, line);) {
+		if (line[0] == '>')
 			recordSeq();
-		} else {
+		else {
+			charactersRead += line.size();
 			currentSeq.insert(currentSeq.end(), line.begin(), line.end());
 		}
+		if (charactersRead > 10000) pbars[barid].tick(std::exchange(charactersRead, 0));
 	}
 	recordSeq();
+	pbars[barid].tick(charactersRead);
 
 	return res;
 }
 
-std::pair<std::vector<dataset_t>, std::vector<std::string>> readDatasets(
-    std::string inputFile, Alphabet alpha) {
-	// inputFile contains the list of all datasets files, relative to its location
+// returns the number of sequence letters in a fasta file
+size_t getFastaSize(const fs::path& filepath) {
+	std::ifstream file(filepath.c_str());
+	size_t nLetters = 0;
+	for (std::string line{}; std::getline(file, line);)
+		if (line[0] != '>') nLetters += line.size();
+	return nLetters;
+}
 
+inline auto readPaths(const std::string& inputFile) {
 	fs::path filePath{fs::absolute(fs::path(inputFile))};
-	auto p = filePath.parent_path();
-
-	std::vector<fs::path> datasets;
+	auto basePath = filePath.parent_path();
 	std::ifstream file(filePath.c_str());
-	std::string line;
 
-	size_t totalFileSize = 0;
-	while (std::getline(file, line)) {
-		fs::path datapath{p};
-		datapath /= line;
-		datasets.push_back(datapath);
-		totalFileSize += fs::file_size(datapath);
+	std::vector<fs::path> paths;
+	std::vector<size_t> sizes;
+
+	for (std::string line{}; std::getline(file, line);) {
+		fs::path datapath = fs::path(basePath) / line;
+		paths.push_back(datapath);
+		sizes.push_back(getFastaSize(datapath));
 	}
 
-	std::vector<dataset_t> alldatasets;
-	std::vector<std::string> allnames;
+	return std::make_pair(paths, sizes);
+}
 
-	ProgressBar mainbar{option::BarWidth{50},
-	                    option::Start{"["},
-	                    option::Fill{"■"},
-	                    option::Lead{"■"},
-	                    option::Remainder{"-"},
-	                    option::End{"]"},
-	                    option::PostfixText{"Loading datasets"},
-	                    option::ShowElapsedTime{true},
-	                    option::ForegroundColor{Color::cyan},
-	                    option::MaxProgress{totalFileSize},
-	                    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
+std::pair<std::vector<dataset_t>, size_t> readDatasets(
+    const std::vector<fs::path>& paths, const std::vector<size_t>& sizes, size_t offset,
+    size_t maxSize, Alphabet alpha, DynamicProgress<ProgressBar>& bars) {
+	assert(paths.size() == sizes.size());
 
-	for (size_t i = 0; i < datasets.size(); ++i) {
-		allnames.push_back(datasets[i].filename());
-		mainbar.set_option(option::PostfixText{"Loading " + allnames[i]});
-		alldatasets.push_back(readFasta(datasets[i].c_str(), alpha, &mainbar));
+	size_t readSize = 0;
+	size_t next = offset;
+	while (next < sizes.size() && readSize < maxSize) {
+		readSize += sizes[next];
+		++next;
 	}
 
-	mainbar.set_option(option::ForegroundColor{Color::green});
-	mainbar.set_option(option::PrefixText{"✔ " + std::to_string(alldatasets.size()) +
-	                                      " datasets loaded in memory"});
-	mainbar.set_option(option::BarWidth{0});
-	mainbar.set_option(option::Fill{""});
-	mainbar.set_option(option::Lead{""});
-	mainbar.set_option(option::Start{""});
-	mainbar.set_option(option::End{""});
-	mainbar.set_option(option::ShowPercentage{false});
-	mainbar.set_option(option::PostfixText{"                              "});
-	mainbar.mark_as_completed();
+	auto barid = bars.make_bar(
+	    option::BarWidth{50}, option::Start{"["}, option::Fill{"■"}, option::Lead{"■"},
+	    option::Remainder{"-"}, option::End{"]"}, option::ShowElapsedTime{true},
+	    option::ForegroundColor{Color::yellow}, option::MaxProgress{readSize},
+	    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}});
 
-	return {alldatasets, allnames};
+	std::vector<dataset_t> datasets;
+	for (size_t i = offset; i < next; ++i) {
+		bars[barid].set_option(option::PostfixText{"Loading " + paths[i].string()});
+		datasets.push_back(readFasta(paths[i], alpha, bars, barid));
+	}
+	bars[barid].mark_as_completed();
+
+	return {datasets, next};
 }
 
 // generate N random dna sequences of size L
@@ -221,20 +215,21 @@ inline void dumpMap(const kmap_t& m, int k, Alphabet alpha, std::string outputpa
 
 // merge multiple multikmaps into one multikmap
 inline void mergeMultiMaps(multikmap_t& res, std::vector<multikmap_t>& maps,
-                           bool enableSpinner = false, size_t startIndex = 0) {
+                           size_t startIndex = 0,
+                           DynamicProgress<ProgressBar>* bars = nullptr) {
 	size_t N = maps.size();
 
-	std::unique_ptr<ProgressBar> mainbar(nullptr);
-	if (enableSpinner) {
+	size_t barid = 0;
+	if (bars) {
 		size_t entries = 0;
 		for (size_t m = startIndex; m < N; ++m) entries += maps[m].size();
-		mainbar.reset(new ProgressBar{
+		barid = bars->make_bar(
 		    option::BarWidth{50}, option::Start{"["}, option::Fill{"■"}, option::Lead{"■"},
 		    option::Remainder{"-"}, option::End{"]"},
 		    option::PostfixText{"Merging " + std::to_string(maps.size()) + " K-Maps"},
-		    option::ShowElapsedTime{true}, option::ForegroundColor{Color::cyan},
+		    option::ShowElapsedTime{true}, option::ForegroundColor{Color::yellow},
 		    option::MaxProgress{entries + 1},
-		    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}});
+		    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}});
 	}
 
 	int ticks = 0;
@@ -254,25 +249,29 @@ inline void mergeMultiMaps(multikmap_t& res, std::vector<multikmap_t>& maps,
 				}
 			}
 			if (++ticks > 1000) {
-				if (mainbar) mainbar->tick(ticks);
+				if (bars) (*bars)[barid].tick(ticks);
 				ticks = 0;
 			}
 		}
-		// maps[m].clear();  // avoid wasting memory
 	}
-	// maps.clear();
-	if (mainbar) {  // spinner update
-		mainbar->set_option(option::ForegroundColor{Color::green});
-		mainbar->set_option(option::PrefixText{"✔ " + std::to_string(N) + " kmaps merged (" +
-		                                       std::to_string(res.size()) + " entries)"});
-		mainbar->set_option(option::BarWidth{0});
-		mainbar->set_option(option::Fill{""});
-		mainbar->set_option(option::Lead{""});
-		mainbar->set_option(option::Start{""});
-		mainbar->set_option(option::End{""});
-		mainbar->set_option(option::ShowPercentage{false});
-		mainbar->set_option(option::PostfixText{"                              "});
-		mainbar->mark_as_completed();
+	if (bars) {
+		auto& b = (*bars)[barid];
+		b.set_option(option::ForegroundColor{Color::green});
+		b.set_option(option::PrefixText{"✔ Merged " + std::to_string(maps.size()) +
+		                                " kmaps. Cleaning memory..."});
+		b.set_option(option::BarWidth{0});
+		b.set_option(option::Fill{""});
+		b.set_option(option::Lead{""});
+		b.set_option(option::Start{""});
+		b.set_option(option::End{""});
+		b.set_option(option::ShowPercentage{false});
+		b.set_option(option::PostfixText{"                              "});
+		(*bars)[barid];  // update
+	}
+	for (size_t m = startIndex; m < N; ++m) maps[m].clear();  // avoid wasting memory
+	if (bars) {
+		(*bars)[barid].mark_as_completed();
+		(*bars)[barid];  // update
 	}
 }
 
@@ -291,7 +290,7 @@ inline void dumpMultiMap(const multikmap_t& m, const std::vector<std::string>& n
 	                    option::End{"]"},
 	                    option::PostfixText{"Writing to " + outputpath},
 	                    option::ShowElapsedTime{true},
-	                    option::ForegroundColor{Color::cyan},
+	                    option::ForegroundColor{Color::yellow},
 	                    option::MaxProgress{m.size() + 1},
 	                    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
 
@@ -299,7 +298,8 @@ inline void dumpMultiMap(const multikmap_t& m, const std::vector<std::string>& n
 
 	{  // write header line
 		// KMER, dataset, char0, char1, char2, ..., ']'
-		// we ignore the last column since it's the begin character. It can't be in the counts
+		// we ignore the last column since it's the begin character. It can't be in the
+		// counts
 		std::fprintf(file, "%s", "kmer, dataset");
 		for (size_t i = 0; i < alphabet.size() - 1; ++i) fprintf(file, ", %c", alphabet[i]);
 		std::fprintf(file, "%s", "\n");
@@ -367,7 +367,7 @@ inline void dumpMultiMap_sparseMatrix(const multikmap_t& m, int k, Alphabet alph
 	                    option::End{"]"},
 	                    option::PostfixText{"Writing to " + outputpath},
 	                    option::ShowElapsedTime{true},
-	                    option::ForegroundColor{Color::cyan},
+	                    option::ForegroundColor{Color::yellow},
 	                    option::MaxProgress{m.size() + CHUNKSIZE},
 	                    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
 

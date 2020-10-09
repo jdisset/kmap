@@ -45,30 +45,29 @@ void computeMultiKMap(const std::vector<encoded_seq_t>& seqs, size_t datasetId, 
 	}
 }
 
-void computeDatasetMultiKmap(const std::vector<dataset_t>& datasets, size_t datasetId,
+void computeDatasetMultiKmap(const dataset_t& dataset, size_t datasetId,
                              multikmap_t& outmap, int K, Alphabet alpha, size_t nbThreads,
-                             size_t nbSeqPerTask, ProgressBar& mainbar) {
+                             size_t nbSeqPerTask, DynamicProgress<ProgressBar>& pbars,
+                             size_t progressBarId) {
 	if (nbThreads > 1) {
 		TinyPool::ThreadPool tp{nbThreads};
 		std::vector<multikmap_t> allmaps(tp.nThreads);
-		for (size_t i = 0; i < datasets[datasetId].size(); i += nbSeqPerTask) {
-			tp.push_work([i, K, nbSeqPerTask, alpha, datasetId, nbDatasets = datasets.size(),
-			              &datasets, &allmaps, &mainbar](size_t procId) {
-				auto& dataset = datasets[datasetId];
+		for (size_t i = 0; i < dataset.size(); i += nbSeqPerTask) {
+			tp.push_work([i, K, nbSeqPerTask, alpha, datasetId, &dataset, &allmaps, &pbars,
+			              progressBarId](size_t procId) {
 				const size_t lower = i;
 				const size_t upper = std::min(i + nbSeqPerTask, dataset.size());
 				computeMultiKMap(dataset, datasetId, K, alpha, lower, upper, allmaps[procId]);
 				int ticksize = 0;
 				for (size_t j = lower; j < upper; ++j) ticksize += dataset[j].size();
-				mainbar.tick(ticksize);
+				pbars[progressBarId].tick(ticksize);
 			});
 		}
 		tp.waitAll();
 		mergeMultiMaps(outmap, allmaps);
 	} else {
-		computeMultiKMap(datasets[datasetId], datasetId, K, alpha, 0,
-		                 datasets[datasetId].size(), outmap);
-		for (const auto& d : datasets[datasetId]) mainbar.tick(d.size());
+		computeMultiKMap(dataset, datasetId, K, alpha, 0, dataset.size(), outmap);
+		for (const auto& d : dataset) pbars[progressBarId].tick(d.size());
 	}
 }
 
@@ -150,11 +149,17 @@ int main(int argc, char** argv) {
 
 	show_console_cursor(false);
 
-	auto [alldatasets, allnames] = readDatasets(inputFile, alpha);
+	// set up thread pool
+	TinyPool::ThreadPool tp{nbGlobalThreads};
 
-	size_t totalTicks = 0;
-	for (const auto& d : alldatasets)
-		for (const auto& s : d) totalTicks += s.size();
+	std::cout << "Checking all input datasets sizes" << std::endl;
+	auto [allpaths, allsizes] = readPaths(inputFile);  // read all dataset paths.
+	size_t totalSize = 0;
+	for (const size_t& s : allsizes) totalSize += s;
+	std::cout << "✔ Found " << totalSize << " sequence characters in " << allpaths.size()
+	          << " files." << std::endl;
+	// allsize is the actual number of sequence letters per file
+
 
 	ProgressBar mainbar{option::BarWidth{50},
 	                    option::Start{"["},
@@ -165,25 +170,45 @@ int main(int argc, char** argv) {
 	                    option::PostfixText{"Hashing datasets"},
 	                    option::ShowElapsedTime{true},
 	                    option::ForegroundColor{Color::cyan},
-	                    option::MaxProgress{totalTicks + 1},
+	                    option::MaxProgress{totalSize + 1},
 	                    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
 
-	// set up thread pool
-	TinyPool::ThreadPool tp{nbGlobalThreads};
+	DynamicProgress<ProgressBar> bars(mainbar);
+	bars.set_option(option::HideBarWhenComplete{true});
 
-	// std::vector<kmap_t> allkmaps(alldatasets.size());
-	std::vector<multikmap_t> allkmaps(nbGlobalThreads);
 
-	// compute a kmap (in allkmaps) for each dataset, using the threadpool.
-	for (size_t i = 0; i < alldatasets.size(); ++i) {
-		tp.push_work([i, K, nbSeqPerTask, nbSeqThreads, alpha, &alldatasets = alldatasets,
-		              &allkmaps, &mainbar](size_t threadId) {
-			computeDatasetMultiKmap(alldatasets, i, allkmaps[threadId], K, alpha, nbSeqThreads,
-			                        nbSeqPerTask, mainbar);
-		});
+	size_t maxSize = 100000000;
+	std::vector<dataset_t> datasets;
+	size_t offset = 0;
+	size_t next = 0;
+
+	while (offset < allpaths.size()) {
+		std::tie(datasets, next) =
+		    readDatasets(allpaths, allsizes, offset, maxSize, alpha, bars);
+		// here we only treat a subset of all the datasets so that everything fits in memory.
+
+		std::vector<multikmap_t> allkmaps(nbGlobalThreads);
+
+		// compute a kmap (in allkmaps) for each dataset, using the threadpool.
+		for (size_t i = 0; i < datasets.size(); ++i) {
+			tp.push_work([i, K, offset, nbSeqPerTask, nbSeqThreads, alpha, &datasets = datasets,
+			              &allkmaps, &bars, progressBarId = 0](size_t threadId) {
+				computeDatasetMultiKmap(datasets[i], offset + i, allkmaps[threadId], K, alpha,
+				                        nbSeqThreads, nbSeqPerTask, bars, progressBarId);
+			});
+		}
+		tp.waitAll();
+
+		mergeMultiMaps(
+		    allkmaps[0], allkmaps, 1, &bars);
+		auto& result = allkmaps[0];
+
+		// saveToDB(result, dbPath); // merges into existing db
+
+		offset = next;
 	}
-	tp.waitAll();
 
+	// TODO: switch to dynamic loading progress bars so that the merge bar can disappear
 	mainbar.set_option(option::ForegroundColor{Color::green});
 	mainbar.set_option(option::PrefixText{"✔ All datasets hashed"});
 	mainbar.set_option(option::BarWidth{0});
@@ -195,21 +220,19 @@ int main(int argc, char** argv) {
 	mainbar.set_option(option::PostfixText{"                              "});
 	mainbar.mark_as_completed();
 
-	mergeMultiMaps(allkmaps[0], allkmaps, true, 1);
-	auto& result = allkmaps[0];
+	// TODO: other main that converts a rocksDB into the desired format
+	//// output result
+	// switch (outformat) {
+	// case OutFormat::multimap:
+	// dumpMultiMap(result, allnames, K, alpha, outputFile);
+	// break;
 
-	// output result
-	switch (outformat) {
-		case OutFormat::multimap:
-			dumpMultiMap(result, allnames, K, alpha, outputFile);
-			break;
-
-		default:
-			std::cerr << "Output format not recognized, using sparsematrix" << std::endl;
-		case OutFormat::sparsematrix:
-			dumpMultiMap_sparseMatrix(result, K, alpha, outputFile);
-			break;
-	}
+	// default:
+	// std::cerr << "Output format not recognized, using sparsematrix" << std::endl;
+	// case OutFormat::sparsematrix:
+	// dumpMultiMap_sparseMatrix(result, K, alpha, outputFile);
+	// break;
+	//}
 
 	std::cerr << "Done. Cleaning up memory..." << std::endl;
 	show_console_cursor(true);
