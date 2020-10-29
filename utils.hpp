@@ -1,9 +1,10 @@
 #pragma once
-
+#include <charconv>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <indicators.hpp>
+#include <json.hpp>
 #include <memory>
 #include <random>
 #include <robinhood.hpp>
@@ -13,19 +14,42 @@
 
 #include "alphabet.hpp"
 
-using raw_seq_t = std::vector<char>;
-using encoded_seq_t = std::vector<int8_t>;
-using dataset_t = std::vector<encoded_seq_t>;
-using namespace indicators;
+using namespace indicators;  // for progress bars
+using json = nlohmann::json;
 namespace fs = std::filesystem;
 
-using seqview_t = std::basic_string_view<int8_t>;
+// type definitions
 
-template <typename V> using seqmap_t = robin_hood::unordered_map<seqview_t, V>;
+using raw_seq_t = std::vector<char>;           // just a normal ascii sequence
+using encoded_seq_t = std::vector<int8_t>;     // a sequence encoded into an alphabet
+using dataset_t = std::vector<encoded_seq_t>;  // list of encoded sequences
 
-using kmap_t = seqmap_t<std::vector<size_t>>;  // SeqView -> counts
-using multikmap_t = seqmap_t<robin_hood::unordered_map<
-    size_t, std::vector<size_t>>>;  // SeqView -> counts per dataset
+using seqview_t = std::basic_string_view<int8_t>;  // view of encoded sequence
+
+template <typename K, typename V> using umap_t = robin_hood::unordered_map<K, V>;
+
+using kmap_t = umap_t<seqview_t, std::vector<uint64_t>>;      // seqview -> counts
+using datacount_t = umap_t<uint64_t, std::vector<uint64_t>>;  // counts per dataset id
+using multikmap_t = umap_t<seqview_t, datacount_t>;  // seqview -> counts per dataset
+
+inline datacount_t deserialize(const std::string& s) {
+	datacount_t d{};
+	auto j = json::parse(s);
+	for (const auto& e : j.items())
+		d[atoll(e.key().c_str())] = e.value().get<std::vector<uint64_t>>();
+	return d;
+}
+
+inline std::string serialize(const datacount_t& d) {
+	json j{};
+	for (const auto& [k, v] : d) j[k] = v;
+	return j.dump();
+}
+
+inline void addCounts(std::vector<uint64_t>& a, const std::vector<uint64_t>& b) {
+	assert(a.size() == b.size());
+	for (size_t i = 0; i < a.size(); ++i) a[i] += b[i];
+}
 
 // encode / decode. Important for 2 reasons:
 // - normalizing uppercase & lowercases
@@ -66,9 +90,7 @@ template <typename B>
 std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet& alpha,
                                      B& pbars, size_t barid) {
 	fs::path p{filepath};
-
 	std::vector<encoded_seq_t> res;
-
 	std::ifstream file(filepath.c_str());
 
 	size_t charactersRead = 0;
@@ -95,7 +117,7 @@ std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet
 }
 
 // returns the number of sequence letters in a fasta file
-size_t getFastaSize(const fs::path& filepath) {
+inline size_t getFastaSize(const fs::path& filepath) {
 	std::ifstream file(filepath.c_str());
 	size_t nLetters = 0;
 	for (std::string line{}; std::getline(file, line);)
@@ -120,7 +142,7 @@ inline auto readPaths(const std::string& inputFile) {
 	return std::make_pair(paths, sizes);
 }
 
-std::pair<std::vector<dataset_t>, size_t> readDatasets(
+inline std::pair<std::vector<dataset_t>, size_t> readDatasets(
     const std::vector<fs::path>& paths, const std::vector<size_t>& sizes, size_t offset,
     size_t maxSize, Alphabet alpha, DynamicProgress<ProgressBar>& bars) {
 	assert(paths.size() == sizes.size());

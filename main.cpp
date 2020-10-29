@@ -1,3 +1,5 @@
+#include <rocksdb/db.h>
+
 #include <cxxopts.hpp>
 #include <indicators.hpp>
 #include <iostream>
@@ -7,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "rocksdb.hpp"
 #include "utils.hpp"
 
 using namespace indicators;
@@ -38,7 +41,7 @@ void computeMultiKMap(const std::vector<encoded_seq_t>& seqs, size_t datasetId, 
 				seqview_t sv{&seqs[s][left], l};
 				auto& datasetCounts = res[sv][datasetId];
 				if (datasetCounts.size() == 0)
-					datasetCounts = std::vector<size_t>(ALPHABET_SIZE, 0);
+					datasetCounts = std::vector<uint64_t>(ALPHABET_SIZE, 0);
 				datasetCounts[nxtchar]++;
 			}
 		}
@@ -72,6 +75,9 @@ void computeDatasetMultiKmap(const dataset_t& dataset, size_t datasetId,
 }
 
 int main(int argc, char** argv) {
+	RocksDB rdb{};
+	rdb.open("/tmp/rdb");  // TODO parameter
+
 	size_t nbSeqPerTask = 10;
 	int K = 40;
 	unsigned int nbSeqThreads = 1;
@@ -102,7 +108,8 @@ int main(int argc, char** argv) {
 	    "a,alphabet", "alphabet: dna (default), rna or protein",
 	    cxxopts::value<std::string>()->default_value("dna"))(
 	    "t,seqthreads",
-	    "Number of threads to deploy when processing a dataset. Total number of threads = "
+	    "Number of threads to deploy when processing a dataset. Total number of threads "
+	    "= "
 	    "--nparallel x --seqthreads",
 	    cxxopts::value<unsigned int>(nbSeqThreads)->default_value("1"))(
 	    "n,nparallel",
@@ -160,7 +167,6 @@ int main(int argc, char** argv) {
 	          << " files." << std::endl;
 	// allsize is the actual number of sequence letters per file
 
-
 	ProgressBar mainbar{option::BarWidth{50},
 	                    option::Start{"["},
 	                    option::Fill{"■"},
@@ -176,7 +182,6 @@ int main(int argc, char** argv) {
 	DynamicProgress<ProgressBar> bars(mainbar);
 	bars.set_option(option::HideBarWhenComplete{true});
 
-
 	size_t maxSize = 100000000;
 	std::vector<dataset_t> datasets;
 	size_t offset = 0;
@@ -185,7 +190,8 @@ int main(int argc, char** argv) {
 	while (offset < allpaths.size()) {
 		std::tie(datasets, next) =
 		    readDatasets(allpaths, allsizes, offset, maxSize, alpha, bars);
-		// here we only treat a subset of all the datasets so that everything fits in memory.
+		// here we only treat a subset of all the datasets so that everything fits in
+		// memory.
 
 		std::vector<multikmap_t> allkmaps(nbGlobalThreads);
 
@@ -199,11 +205,9 @@ int main(int argc, char** argv) {
 		}
 		tp.waitAll();
 
-		mergeMultiMaps(
-		    allkmaps[0], allkmaps, 1, &bars);
-		auto& result = allkmaps[0];
+		mergeMultiMaps(allkmaps[0], allkmaps, 1, &bars);
 
-		// saveToDB(result, dbPath); // merges into existing db
+		rdb.add(allkmaps[0], alpha);  // merges into existing db
 
 		offset = next;
 	}

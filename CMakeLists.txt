@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.11)
 
 project(kmap)
 
@@ -12,16 +12,42 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
+
 # Sanitize modes
 set(CMAKE_CXX_FLAGS_SAN " -O1 -g -fsanitize=address,undefined" CACHE STRING "Enable sanitization" FORCE)
 mark_as_advanced( CMAKE_CXX_FLAGS_SAN)
-
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -g -Wextra -pedantic")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -g -Wall -Wextra -pedantic")
 
+
+
+add_library(librocksdb STATIC IMPORTED)
+set_target_properties(librocksdb PROPERTIES IMPORTED_LOCATION /Users/jeandisset/Softwares/rocksdb/librocksdb.a)
+set(ROCKSDB_LIBRARIES librocksdb)
+set(ROCKSDB_INCLUDE_DIR /Users/jeandisset/Softwares/rocksdb/include)
+
+find_package(BZip2 REQUIRED)
+find_package(Zlib REQUIRED)
+find_package(zstd REQUIRED)
+#find_package(Rocksdb REQUIRED)
+
+include_directories(${BZIP2_INCLUDE_DIR})
+include_directories(${ZLIB_INCLUDE_DIR})
+include_directories(${ZSTD_INCLUDE_DIR})
+include_directories(${ROCKSDB_INCLUDE_DIR})
+include_directories("/Users/jeandisset/Softwares/rocksdb/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/external")
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-add_executable(kmap main.cpp)
-target_link_libraries(kmap PRIVATE Threads::Threads)
+
+add_executable(kmap main.cpp rocksdb.cpp rocksdbmerge.cpp)
+target_link_libraries(kmap PRIVATE 
+	Threads::Threads 
+	${ROCKSDB_LIBRARIES} ${ZLIB_LIBRARIES} ${BZIP2_LIBRARIES} ${ZSTD_LIBRARIES} )
+
+add_executable(tests test.cpp)
+target_link_libraries(tests PRIVATE 
+	Threads::Threads
+	${ROCKSDB_LIBRARIES} ${ZLIB_LIBRARIES} ${BZIP2_LIBRARIES} ${ZSTD_LIBRARIES} )
