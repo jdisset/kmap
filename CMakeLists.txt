@@ -56,17 +56,3 @@ target_link_libraries(tests PRIVATE
 	Threads::Threads
 	${ROCKSDB_LIBRARIES} ${LZ4_LIBRARIES} ${ZLIB_LIBRARIES} ${BZIP2_LIBRARIES} ${ZSTD_LIBRARIES} )
 
-add_executable(simple simple.cpp)
-add_dependencies(simple rocksdb)
-target_link_libraries(simple PRIVATE
-	${ROCKSDB_LIBRARIES}
-	Threads::Threads 
-	${LZ4_LIBRARIES} ${ZLIB_LIBRARIES} ${BZIP2_LIBRARIES} ${ZSTD_LIBRARIES} )
-
-add_executable(merge testmerge/main.cpp)
-add_dependencies(merge rocksdb)
-target_link_libraries(merge PRIVATE 
-	Threads::Threads 
-	${ROCKSDB_LIBRARIES} ${LZ4_LIBRARIES} ${ZLIB_LIBRARIES} ${BZIP2_LIBRARIES} ${ZSTD_LIBRARIES} )
-
-
