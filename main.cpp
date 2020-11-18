@@ -75,9 +75,6 @@ void computeDatasetMultiKmap(const dataset_t& dataset, size_t datasetId,
 }
 
 int main(int argc, char** argv) {
-	RocksDB rdb{};
-	rdb.open("/tmp/rdb");  // TODO parameter
-
 	size_t nbSeqPerTask = 10;
 	int K = 40;
 	unsigned int nbSeqThreads = 1;
@@ -85,10 +82,7 @@ int main(int argc, char** argv) {
 	bool progress = true;
 	Alphabet alpha = Alphabet::dna;
 	std::string inputFile;
-	std::string outputFile;
-
-	enum class OutFormat { multimap, sparsematrix };
-	OutFormat outformat = OutFormat::sparsematrix;
+	std::string outputPath;
 
 	cxxopts::Options options(
 	    "kmap", "computes all kmers and their associated next character count");
@@ -99,10 +93,8 @@ int main(int argc, char** argv) {
 	    "input file listing each dataset's path, one per line. Paths should be either "
 	    "absolute or relative to the location of the input file itself",
 	    cxxopts::value<std::string>(inputFile))(
-	    "o,output", "output file path",
-	    cxxopts::value<std::string>(outputFile)->default_value("kmap_out.csv"))(
-	    "f,output-format", "output format (multimap, sparsematrix). Default = sparsematrix",
-	    cxxopts::value<std::string>()->default_value("sparsematrix"))(
+	    "o,output", "output db path",
+	    cxxopts::value<std::string>(outputPath)->default_value("./rdbout"))(
 	    "p,progress", "show progress output",
 	    cxxopts::value<bool>(progress)->default_value("true"))(
 	    "a,alphabet", "alphabet: dna (default), rna or protein",
@@ -144,17 +136,10 @@ int main(int argc, char** argv) {
 		exit(1);
 	}
 
-	if (opt["output-format"].as<std::string>() == "multimap") {
-		outformat = OutFormat::multimap;
-	} else if (opt["output-format"].as<std::string>() == "sparsematrix") {
-		outformat = OutFormat::sparsematrix;
-	} else {
-		std::cerr << "Invalid output format \"" << opt["output-format"].as<std::string>()
-		          << "\"; should be multimap or sparsematrix" << std::endl;
-		exit(1);
-	}
+	// show_console_cursor(false);
 
-	show_console_cursor(false);
+	RocksDB rdb{};
+	rdb.open(outputPath);
 
 	// set up thread pool
 	TinyPool::ThreadPool tp{nbGlobalThreads};
@@ -166,7 +151,6 @@ int main(int argc, char** argv) {
 	std::cout << "✔ Found " << totalSize << " sequence characters in " << allpaths.size()
 	          << " files." << std::endl;
 	// allsize is the actual number of sequence letters per file
-
 	ProgressBar mainbar{option::BarWidth{50},
 	                    option::Start{"["},
 	                    option::Fill{"■"},
@@ -205,14 +189,13 @@ int main(int argc, char** argv) {
 		}
 		tp.waitAll();
 
-		mergeMultiMaps(allkmaps[0], allkmaps, 1, &bars);
+		// mergeMultiMaps(allkmaps[0], allkmaps, 1, &bars);
+		mergeMultiMaps(allkmaps[0], allkmaps, 1);
 
-		rdb.add(allkmaps[0], alpha);  // merges into existing db
-
+		rdb.add(allkmaps[0], alpha, &bars);  // merges into existing db
 		offset = next;
 	}
 
-	// TODO: switch to dynamic loading progress bars so that the merge bar can disappear
 	mainbar.set_option(option::ForegroundColor{Color::green});
 	mainbar.set_option(option::PrefixText{"✔ All datasets hashed"});
 	mainbar.set_option(option::BarWidth{0});
@@ -223,20 +206,6 @@ int main(int argc, char** argv) {
 	mainbar.set_option(option::ShowPercentage{false});
 	mainbar.set_option(option::PostfixText{"                              "});
 	mainbar.mark_as_completed();
-
-	// TODO: other main that converts a rocksDB into the desired format
-	//// output result
-	// switch (outformat) {
-	// case OutFormat::multimap:
-	// dumpMultiMap(result, allnames, K, alpha, outputFile);
-	// break;
-
-	// default:
-	// std::cerr << "Output format not recognized, using sparsematrix" << std::endl;
-	// case OutFormat::sparsematrix:
-	// dumpMultiMap_sparseMatrix(result, K, alpha, outputFile);
-	// break;
-	//}
 
 	std::cerr << "Done. Cleaning up memory..." << std::endl;
 	show_console_cursor(true);

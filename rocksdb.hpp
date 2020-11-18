@@ -11,8 +11,19 @@ struct RocksDB {
 	rocksdb::WriteOptions writeopts{};
 
 	RocksDB();
+	RocksDB(rocksdb::Options o) : opts(o) {}
 
 	void open(const std::string& path);
 
-	void add(const multikmap_t& kmap, const Alphabet& alpha);
+	template <typename F> void forEach(F&& f) {
+		rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
+		for (it->SeekToFirst(); it->Valid(); it->Next()) {
+			std::forward<F>(f)(it);
+		}
+		assert(it->status().ok());  // Check for any errors found during the scan
+		delete it;
+	}
+
+	void add(const multikmap_t& kmap, const Alphabet& alpha,
+	         DynamicProgress<ProgressBar>* bars = nullptr);
 };

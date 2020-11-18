@@ -4,6 +4,7 @@ bool kmerMergeOperator::Merge([[maybe_unused]] const Slice& key,
                               const Slice* existingValue, const Slice& value,
                               std::string* newValue,
                               [[maybe_unused]] rocksdb::Logger* logger) const {
+
 	datacount_t newMap = deserialize(value.ToString());
 
 	if (existingValue) {
@@ -12,8 +13,7 @@ bool kmerMergeOperator::Merge([[maybe_unused]] const Slice& key,
 	}
 
 	*newValue = serialize(newMap);
-
 	return true;  // no error
 }
 
-const char* kmerMergeOperator::Name() const { return "KMapMergeOperator"; }
+const char* kmerMergeOperator::Name() const { return "kmerMergeOperator"; }

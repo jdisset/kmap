@@ -1,24 +1,33 @@
+#include <iostream>
+
 #include "rocksdb.hpp"
 #include "rocksdbmerge.h"
 
 RocksDB::RocksDB() {
 	opts.error_if_exists = true;
 	opts.create_if_missing = true;
-	opts.merge_operator.reset(new kmerMergeOperator);
+	opts.merge_operator.reset(new kmerMergeOperator());
 }
+
+
 
 void RocksDB::open(const std::string& path) {
 	rocksdb::DB* p;
-	auto status = rocksdb::DB::Open(opts, path, &p);
+	auto status = rocksdb::DB::Open(opts, path.c_str(), &p);
 	db.reset(p);
-	assert(status.ok());
+	if (!status.ok()) throw std::runtime_error(status.ToString());
 }
 
-void RocksDB::add(const multikmap_t& kmap, const Alphabet& alpha) {
+void RocksDB::add(const multikmap_t& kmap, const Alphabet& alpha,
+                  DynamicProgress<ProgressBar>* bars) {
+	PBar p(bars, kmap.size(), "Merging to rocksDB");
 	for (const auto& [k, v] : kmap) {
-		// TODO: fewer copies...
 		auto dec = decodeSequenceView(k, alpha);
-		std::string ks(dec.begin(), dec.end());
-		db->Merge(writeopts, ks, serialize(v));
+		Slice ks(&dec[0], dec.size());
+		auto s = serialize(v);
+		db->Merge(writeopts, ks, s);
+		p.step();
 	}
+	p.completeMsg("Merged batch");
+	//p.complete();
 }

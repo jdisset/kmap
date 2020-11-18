@@ -1,7 +1,22 @@
 [
 {
   "directory": "/Users/jeandisset/Code/marks/kmap/build",
-  "command": "/Library/Developer/CommandLineTools/usr/bin/c++   -I/Users/jeandisset/Code/marks/kmap/build/thirdparty/rocksdb/bin/include -I/Users/jeandisset/Code/marks/kmap/external  -O3 -DNDEBUG -O3 -g -Wall -Wextra -pedantic -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk   -std=gnu++1z -o CMakeFiles/kmap.dir/main.cpp.o -c /Users/jeandisset/Code/marks/kmap/main.cpp",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++   -I/usr/local/include -I/Users/jeandisset/Softwares/rocksdb/include -I/Users/jeandisset/Code/marks/kmap/external  -O3 -DNDEBUG -O3 -g -Wall -Wextra -pedantic -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk   -std=gnu++1z -o CMakeFiles/tests.dir/test.cpp.o -c /Users/jeandisset/Code/marks/kmap/test.cpp",
+  "file": "/Users/jeandisset/Code/marks/kmap/test.cpp"
+},
+{
+  "directory": "/Users/jeandisset/Code/marks/kmap/build",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++   -I/usr/local/include -I/Users/jeandisset/Softwares/rocksdb/include -I/Users/jeandisset/Code/marks/kmap/external  -O3 -DNDEBUG -O3 -g -Wall -Wextra -pedantic -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk   -std=gnu++1z -o CMakeFiles/kmap.dir/main.cpp.o -c /Users/jeandisset/Code/marks/kmap/main.cpp",
   "file": "/Users/jeandisset/Code/marks/kmap/main.cpp"
+},
+{
+  "directory": "/Users/jeandisset/Code/marks/kmap/build",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++   -I/usr/local/include -I/Users/jeandisset/Softwares/rocksdb/include -I/Users/jeandisset/Code/marks/kmap/external  -O3 -DNDEBUG -O3 -g -Wall -Wextra -pedantic -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk   -std=gnu++1z -o CMakeFiles/kmap.dir/rocksdb.cpp.o -c /Users/jeandisset/Code/marks/kmap/rocksdb.cpp",
+  "file": "/Users/jeandisset/Code/marks/kmap/rocksdb.cpp"
+},
+{
+  "directory": "/Users/jeandisset/Code/marks/kmap/build",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++   -I/usr/local/include -I/Users/jeandisset/Softwares/rocksdb/include -I/Users/jeandisset/Code/marks/kmap/external  -O3 -DNDEBUG -O3 -g -Wall -Wextra -pedantic -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk   -std=gnu++1z -o CMakeFiles/kmap.dir/rocksdbmerge.cpp.o -c /Users/jeandisset/Code/marks/kmap/rocksdbmerge.cpp",
+  "file": "/Users/jeandisset/Code/marks/kmap/rocksdbmerge.cpp"
 }
 ]

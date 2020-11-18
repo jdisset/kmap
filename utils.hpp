@@ -42,7 +42,7 @@ inline datacount_t deserialize(const std::string& s) {
 
 inline std::string serialize(const datacount_t& d) {
 	json j{};
-	for (const auto& [k, v] : d) j[k] = v;
+	for (const auto& [k, v] : d) j[std::to_string(k)] = v;
 	return j.dump();
 }
 
@@ -85,6 +85,61 @@ inline raw_seq_t decodeSequenceView(const seqview_t& s, const Alphabet& alpha) {
 	for (size_t i = 0; i < s.size(); ++i) r[i] = decode(s[i]);
 	return r;
 }
+
+struct PBar {
+	int barid = -1;
+	DynamicProgress<ProgressBar>* bars = nullptr;
+	size_t total = 100;
+	size_t ticks = 0;
+	size_t ticksFromStart = 0;
+
+	PBar(DynamicProgress<ProgressBar>* bars, size_t total, const std::string& msg)
+	    : bars(bars), total(total) {
+		if (bars) {
+			barid = bars->make_bar(option::BarWidth{50}, option::Start{"["}, option::Fill{"■"},
+			                       option::Lead{"■"}, option::Remainder{"-"}, option::End{"]"},
+			                       option::PostfixText{msg}, option::ShowElapsedTime{true},
+			                       option::ForegroundColor{Color::yellow},
+			                       option::MaxProgress{total + 1},
+			                       option::FontStyles{std::vector<FontStyle>{FontStyle::bold}});
+		}
+	}
+
+	inline void step(size_t i = 1) {
+		if (bars) {
+			ticks += i;
+			ticksFromStart += i;
+			if (ticks > total / 1000) {
+				//std::cerr << "tick " << ticksFromStart << " / " << total << std::endl;
+				if (ticksFromStart <= total) (*bars)[barid].tick(ticks);
+				ticks = 0;
+			}
+		}
+	}
+
+	inline void completeMsg(const std::string& msg) {
+		if (bars) {
+			auto& b = (*bars)[barid];
+			b.set_option(option::ForegroundColor{Color::green});
+			b.set_option(option::PrefixText{"✔ " + msg});
+			b.set_option(option::BarWidth{0});
+			b.set_option(option::Fill{""});
+			b.set_option(option::Lead{""});
+			b.set_option(option::Start{""});
+			b.set_option(option::End{""});
+			b.set_option(option::ShowPercentage{false});
+			b.set_option(option::PostfixText{"                              "});
+			(*bars)[barid];  // update
+		}
+	}
+
+	inline void complete() {
+		if (bars) {
+			(*bars)[barid].mark_as_completed();
+			(*bars)[barid];  // update
+		}
+	}
+};
 
 template <typename B>
 std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet& alpha,
@@ -241,20 +296,11 @@ inline void mergeMultiMaps(multikmap_t& res, std::vector<multikmap_t>& maps,
                            DynamicProgress<ProgressBar>* bars = nullptr) {
 	size_t N = maps.size();
 
-	size_t barid = 0;
-	if (bars) {
-		size_t entries = 0;
+	size_t entries = 0;
+	if (bars)
 		for (size_t m = startIndex; m < N; ++m) entries += maps[m].size();
-		barid = bars->make_bar(
-		    option::BarWidth{50}, option::Start{"["}, option::Fill{"■"}, option::Lead{"■"},
-		    option::Remainder{"-"}, option::End{"]"},
-		    option::PostfixText{"Merging " + std::to_string(maps.size()) + " K-Maps"},
-		    option::ShowElapsedTime{true}, option::ForegroundColor{Color::yellow},
-		    option::MaxProgress{entries + 1},
-		    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}});
-	}
+	PBar p{bars, entries, "Merging " + std::to_string(N) + " K-Maps"};
 
-	int ticks = 0;
 	for (size_t m = startIndex; m < N; ++m) {
 		for (auto& [kmer, map] : maps[m]) {
 			if (!res.count(kmer))
@@ -270,31 +316,12 @@ inline void mergeMultiMaps(multikmap_t& res, std::vector<multikmap_t>& maps,
 					}
 				}
 			}
-			if (++ticks > 1000) {
-				if (bars) (*bars)[barid].tick(ticks);
-				ticks = 0;
-			}
+			p.step();
 		}
 	}
-	if (bars) {
-		auto& b = (*bars)[barid];
-		b.set_option(option::ForegroundColor{Color::green});
-		b.set_option(option::PrefixText{"✔ Merged " + std::to_string(maps.size()) +
-		                                " kmaps. Cleaning memory..."});
-		b.set_option(option::BarWidth{0});
-		b.set_option(option::Fill{""});
-		b.set_option(option::Lead{""});
-		b.set_option(option::Start{""});
-		b.set_option(option::End{""});
-		b.set_option(option::ShowPercentage{false});
-		b.set_option(option::PostfixText{"                              "});
-		(*bars)[barid];  // update
-	}
+	p.completeMsg("✔ Merged " + std::to_string(maps.size()) + " kmaps. Cleaning memory...");
 	for (size_t m = startIndex; m < N; ++m) maps[m].clear();  // avoid wasting memory
-	if (bars) {
-		(*bars)[barid].mark_as_completed();
-		(*bars)[barid];  // update
-	}
+	p.complete();
 }
 
 inline void dumpMultiMap(const multikmap_t& m, const std::vector<std::string>& names,
