@@ -6,6 +6,8 @@
 RocksDB::RocksDB() {
 	opts.error_if_exists = true;
 	opts.create_if_missing = true;
+	//opts.IncreaseParallelism();
+	//opts.OptimizeLevelStyleCompaction();
 	opts.merge_operator.reset(new kmerMergeOperator());
 }
 
@@ -20,7 +22,7 @@ void RocksDB::open(const std::string& path) {
 
 void RocksDB::add(const multikmap_t& kmap, const Alphabet& alpha,
                   DynamicProgress<ProgressBar>* bars) {
-	PBar p(bars, kmap.size(), "Merging to rocksDB");
+	PBar p(bars, kmap.size(), "Writing to rocksDB");
 	for (const auto& [k, v] : kmap) {
 		auto dec = decodeSequenceView(k, alpha);
 		Slice ks(&dec[0], dec.size());
@@ -29,5 +31,5 @@ void RocksDB::add(const multikmap_t& kmap, const Alphabet& alpha,
 		p.step();
 	}
 	p.completeMsg("Merged batch");
-	//p.complete();
+	p.complete();
 }

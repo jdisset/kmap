@@ -1,10 +1,11 @@
 #include "rocksdbmerge.h"
 
+// TODO:
+// write sparse mode (datacount as a umap of umap), especially for large alphabets
 bool kmerMergeOperator::Merge([[maybe_unused]] const Slice& key,
                               const Slice* existingValue, const Slice& value,
                               std::string* newValue,
                               [[maybe_unused]] rocksdb::Logger* logger) const {
-
 	datacount_t newMap = deserialize(value.ToString());
 
 	if (existingValue) {

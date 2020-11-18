@@ -83,6 +83,7 @@ int main(int argc, char** argv) {
 	Alphabet alpha = Alphabet::dna;
 	std::string inputFile;
 	std::string outputPath;
+	std::size_t bufferSize = 10000000;
 
 	cxxopts::Options options(
 	    "kmap", "computes all kmers and their associated next character count");
@@ -97,6 +98,10 @@ int main(int argc, char** argv) {
 	    cxxopts::value<std::string>(outputPath)->default_value("./rdbout"))(
 	    "p,progress", "show progress output",
 	    cxxopts::value<bool>(progress)->default_value("true"))(
+	    "b,buffer",
+	    "buffer size, i.e number of characters that can be read before all results should "
+	    "be written to DB",
+	    cxxopts::value<std::size_t>(bufferSize)->default_value("10000000"))(
 	    "a,alphabet", "alphabet: dna (default), rna or protein",
 	    cxxopts::value<std::string>()->default_value("dna"))(
 	    "t,seqthreads",
@@ -136,7 +141,7 @@ int main(int argc, char** argv) {
 		exit(1);
 	}
 
-	// show_console_cursor(false);
+	show_console_cursor(false);
 
 	RocksDB rdb{};
 	rdb.open(outputPath);
@@ -150,6 +155,7 @@ int main(int argc, char** argv) {
 	for (const size_t& s : allsizes) totalSize += s;
 	std::cout << "✔ Found " << totalSize << " sequence characters in " << allpaths.size()
 	          << " files." << std::endl;
+
 	// allsize is the actual number of sequence letters per file
 	ProgressBar mainbar{option::BarWidth{50},
 	                    option::Start{"["},
@@ -166,14 +172,13 @@ int main(int argc, char** argv) {
 	DynamicProgress<ProgressBar> bars(mainbar);
 	bars.set_option(option::HideBarWhenComplete{true});
 
-	size_t maxSize = 100000000;
 	std::vector<dataset_t> datasets;
 	size_t offset = 0;
 	size_t next = 0;
 
 	while (offset < allpaths.size()) {
 		std::tie(datasets, next) =
-		    readDatasets(allpaths, allsizes, offset, maxSize, alpha, bars);
+		    readDatasets(allpaths, allsizes, offset, bufferSize, alpha, bars);
 		// here we only treat a subset of all the datasets so that everything fits in
 		// memory.
 
@@ -189,8 +194,8 @@ int main(int argc, char** argv) {
 		}
 		tp.waitAll();
 
-		// mergeMultiMaps(allkmaps[0], allkmaps, 1, &bars);
-		mergeMultiMaps(allkmaps[0], allkmaps, 1);
+		mergeMultiMaps(allkmaps[0], allkmaps, 1, &bars);
+		// mergeMultiMaps(allkmaps[0], allkmaps, 1);
 
 		rdb.add(allkmaps[0], alpha, &bars);  // merges into existing db
 		offset = next;
