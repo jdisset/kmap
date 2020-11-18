@@ -19,25 +19,16 @@ inline void dbToSparseMatrix(RocksDB& rdb, std::string outputFile) {
 	std::string estimatedN = "1000";
 	rdb.db->GetProperty("rocksdb.estimate-num-keys", &estimatedN);
 	size_t N = std::stoi(estimatedN);
-	ProgressBar mainbar{option::BarWidth{50},
-	                    option::Start{"["},
-	                    option::Fill{"■"},
-	                    option::Lead{"■"},
-	                    option::Remainder{"-"},
-	                    option::End{"]"},
-	                    option::PostfixText{"Writing to " + outputFile},
-	                    option::ShowElapsedTime{true},
-	                    option::ForegroundColor{Color::yellow},
-	                    option::MaxProgress{N + CHUNKSIZE},
-	                    option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}};
+	DynamicProgress<ProgressBar> bars{};
+	// bars.set_option(option::HideBarWhenComplete{true});
+	PBar p{&bars, N + CHUNKSIZE, "Writing to " + outputFile};
 
 	// write header line
 	std::fprintf(file, "kmer, count_mat_indices, count_mat_values\n");
 
 	int c = 0;
 	std::string buff;
-
-	rdb.forEach([&](const auto* it) {
+	auto saveFunc = [&](const auto* it) {
 		datacount_t d = deserialize(it->value().ToString());
 		std::string kmer = it->key().ToString();
 		// auto leftpad = raw_seq_t(k - decoded.size(), '[');
@@ -62,24 +53,16 @@ inline void dbToSparseMatrix(RocksDB& rdb, std::string outputFile) {
 		if (++c > CHUNKSIZE) {
 			std::fwrite(buff.c_str(), 1, buff.size(), file);
 			buff.clear();
-			mainbar.tick(c);
+			p.step(c);
 			c = 0;
 		}
-	});
+	};
+
+	rdb.forEach(saveFunc);
 
 	std::fwrite(buff.c_str(), 1, buff.size(), file);
-	mainbar.tick(c);
+	p.step(c);
 	std::fclose(file);
-	{  // final progress update
-		mainbar.set_option(option::ForegroundColor{Color::green});
-		mainbar.set_option(option::PrefixText{"✔ KMap written to " + outputFile});
-		mainbar.set_option(option::BarWidth{0});
-		mainbar.set_option(option::Fill{""});
-		mainbar.set_option(option::Lead{""});
-		mainbar.set_option(option::Start{""});
-		mainbar.set_option(option::End{""});
-		mainbar.set_option(option::ShowPercentage{false});
-		mainbar.set_option(option::PostfixText{"                              "});
-		mainbar.mark_as_completed();
-	}
+	p.completeMsg("✔ KMap written to " + outputFile);
+	p.complete();
 }

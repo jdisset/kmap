@@ -152,18 +152,24 @@ std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet
 
 	size_t charactersRead = 0;
 	raw_seq_t currentSeq{};
+	bool record = true;  // should we record the lines. Useful for fastQ format
 
-	auto recordSeq = [&]() {
+	auto recordSeq = [&]() {  // pushes a new sequence and empty currentSeq
 		if (currentSeq.size() > 0)
 			res.push_back(encodeSequence(std::exchange(currentSeq, {}), alpha));
 	};
 
 	for (std::string line{}; std::getline(file, line);) {
-		if (line[0] == '>')
+		if (line[0] == '>' || line[0] == '@') {
+			record = true;
 			recordSeq();
-		else {
-			charactersRead += line.size();
-			currentSeq.insert(currentSeq.end(), line.begin(), line.end());
+		} else if (line[0] == '+') {
+			record = false;
+		} else {
+			if (record) {
+				charactersRead += line.size();
+				currentSeq.insert(currentSeq.end(), line.begin(), line.end());
+			}
 		}
 		if (charactersRead > 10000) pbars[barid].tick(std::exchange(charactersRead, 0));
 	}
@@ -177,9 +183,17 @@ std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet
 inline size_t getFastaSize(const fs::path& filepath) {
 	std::ifstream file(filepath.c_str());
 	size_t nLetters = 0;
-	for (std::string line{}; std::getline(file, line);)
-		if (line[0] != '>') nLetters += line.size();
-	return nLetters;
+	bool fastq = false;
+	for (std::string line{}; std::getline(file, line);) {
+		if (line[0] != '>' && line[0] != '@' && line[0] != '+')
+			nLetters += line.size();
+		else if (line[0] == '@')
+			fastq = true;
+	}
+	if (fastq)
+		return nLetters / 2;
+	else
+		return nLetters;
 }
 
 inline auto readPaths(const std::string& inputFile) {

@@ -10,6 +10,7 @@
 int main(int argc, char** argv) {
 	std::string inputPath;
 	std::string outputFile;
+	bool random = false;
 
 	enum class OutFormat { sparsematrix };
 	OutFormat outformat = OutFormat::sparsematrix;
@@ -30,6 +31,7 @@ int main(int argc, char** argv) {
 		std::cout << options.help() << std::endl;
 		exit(0);
 	}
+
 	if (opt["output-format"].as<std::string>() == "sparsematrix") {
 		outformat = OutFormat::sparsematrix;
 	} else {
