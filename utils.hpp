@@ -32,18 +32,84 @@ using kmap_t = umap_t<seqview_t, std::vector<uint64_t>>;      // seqview -> coun
 using datacount_t = umap_t<uint64_t, std::vector<uint64_t>>;  // counts per dataset id
 using multikmap_t = umap_t<seqview_t, datacount_t>;  // seqview -> counts per dataset
 
+/*inline datacount_t deserialize(const std::string& s) {*/
+// datacount_t d{};
+// auto j = json::parse(s);
+// for (const auto& e : j.items())
+// d[atoll(e.key().c_str())] = e.value().get<std::vector<uint64_t>>();
+// return d;
+//}
+
+// inline std::string serialize(const datacount_t& d) {
+// json j{};
+// for (const auto& [k, v] : d) j[std::to_string(k)] = v;
+// return j.dump();
+//}
+
+// parse the first number before delim, returns the rest of the substring, not including
+// delim
+template <typename T>
+std::string_view firstFromChars(const std::string_view& sv, char delim, T& res) {
+	size_t p = sv.find_first_of(delim);
+	std::from_chars(sv.data(), sv.data() + p, res);
+	return sv.substr(std::min(p + 1, sv.size()), sv.size() - p);
+}
+
+// splits a string view using delim, and calls f for each substring
+template <typename F>
+void splt(const std::string_view& sv, char delim, F&& f, size_t i = 0) {
+	if (sv.size() > 0) {
+		size_t p = sv.find_first_of(delim);
+		std::forward<F>(f)(sv.substr(0, p), i);
+		if (p != std::string_view::npos) {
+			splt(sv.substr(std::min(p + 1, sv.size()), sv.size() - p), delim,
+			     std::forward<F>(f), i + 1);
+		}
+	}
+}
+
 inline datacount_t deserialize(const std::string& s) {
-	datacount_t d{};
-	auto j = json::parse(s);
-	for (const auto& e : j.items())
-		d[atoll(e.key().c_str())] = e.value().get<std::vector<uint64_t>>();
+	datacount_t d;
+	if (s.size() == 0) return d;
+	std::string_view sv(s);
+
+	// getting number of letters in alphabet
+	uint32_t nAlpha;
+	sv = firstFromChars(sv, 'A', nAlpha);
+
+	// for each dataset
+	splt(sv, ' ', [&](const auto& dcpair, int) {
+		uint64_t datasetId;
+		auto countstr = firstFromChars(dcpair, '|', datasetId);
+		std::vector<uint64_t> countArr(nAlpha);
+		// for each pair letter:count
+		splt(countstr, ',', [&](const auto& dcpair, int) {
+			uint64_t lc[2];  // [letter, count]
+			splt(dcpair, ':', [&](const auto& substr, int i) {
+				std::from_chars(substr.data(), substr.data() + substr.size(), lc[i]);
+			});
+			countArr[lc[0]] = lc[1];
+		});
+		d[datasetId] = countArr;
+	});
+
 	return d;
 }
 
 inline std::string serialize(const datacount_t& d) {
-	json j{};
-	for (const auto& [k, v] : d) j[std::to_string(k)] = v;
-	return j.dump();
+	std::string s;
+	if (d.size() == 0) return s;
+	uint32_t nAlpha = d.begin()->second.size();
+	for (const auto& [k, v] : d) {
+		s += std::to_string(k) + "|";
+		for (size_t i = 0; i < v.size(); ++i) {
+			if (v[i] > 0) s += std::to_string(i) + ":" + std::to_string(v[i]) + ",";
+		}
+		s.pop_back();
+		s += " ";
+	}
+	s.pop_back();
+	return std::to_string(nAlpha) + "A" + s;
 }
 
 inline void addCounts(std::vector<uint64_t>& a, const std::vector<uint64_t>& b) {
