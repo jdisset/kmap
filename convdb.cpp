@@ -10,9 +10,8 @@
 int main(int argc, char** argv) {
 	std::string inputPath;
 	std::string outputFile;
-	bool random = false;
 
-	enum class OutFormat { sparsematrix };
+	enum class OutFormat { sparsematrix, condensed };
 	OutFormat outformat = OutFormat::sparsematrix;
 
 	cxxopts::Options options("kconv",
@@ -21,7 +20,8 @@ int main(int argc, char** argv) {
 	                      cxxopts::value<std::string>(inputPath))(
 	    "o,output", "output file path",
 	    cxxopts::value<std::string>(outputFile)->default_value("kmap_out.csv"))(
-	    "f,output-format", "output format (multimap, sparsematrix). Default = sparsematrix",
+	    "f,output-format",
+	    "output format (sparsematrix, condensed). Default = sparsematrix",
 	    cxxopts::value<std::string>()->default_value("sparsematrix"))("h,help",
 	                                                                  "Print usage");
 
@@ -34,6 +34,8 @@ int main(int argc, char** argv) {
 
 	if (opt["output-format"].as<std::string>() == "sparsematrix") {
 		outformat = OutFormat::sparsematrix;
+	} else if (opt["output-format"].as<std::string>() == "condensed") {
+		outformat = OutFormat::condensed;
 	} else {
 		std::cerr << "Invalid output format \"" << opt["output-format"].as<std::string>()
 		          << "\"; available: sparsematrix" << std::endl;
@@ -45,5 +47,13 @@ int main(int argc, char** argv) {
 	rdb.opts.create_if_missing = false;
 
 	rdb.open(inputPath);
-	dbToSparseMatrix(rdb, outputFile);
+	switch (outformat) {
+		case OutFormat::condensed:
+			dbToCondensed(rdb, outputFile);
+			break;
+		default:
+		case OutFormat::sparsematrix:
+			dbToSparseMatrix(rdb, outputFile);
+			break;
+	}
 }
