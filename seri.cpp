@@ -26,9 +26,9 @@ int main(int, char**) {
 			for (auto& v : counts) v = val(gen);
 			d[i] = counts;
 		}
-		auto str = sericondensed(d);
-		auto d2 = desericondensed(str);
-		auto str2 = sericondensed(d2);
+		auto str = serialize(d);
+		auto d2 = deserialize(str);
+		auto str2 = serialize(d2);
 		std::cerr << str << std::endl << std::endl;
 		std::cerr << str2 << std::endl;
 		REQUIRE(str == str2);

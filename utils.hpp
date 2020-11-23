@@ -84,7 +84,7 @@ inline datacount_t deserialize(const std::string& s) {
 		std::vector<uint64_t> countArr(nAlpha);
 		// for each pair letter:count
 		splt(countstr, ',', [&](const auto& dcpair, int) {
-			uint64_t lc[2];  // [letter, count]
+			uint64_t lc[2] = {0, 0};  // [letter, count]
 			splt(dcpair, ':', [&](const auto& substr, int i) {
 				std::from_chars(substr.data(), substr.data() + substr.size(), lc[i]);
 			});
