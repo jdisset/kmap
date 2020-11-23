@@ -21,18 +21,11 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -g -Wextra -pedantic")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -g -Wall -Wextra -pedantic")
 
 include(build-rocksdb)
+include_directories(${ROCKSDB_INCLUDE_DIR})
 
 find_package(BZip2 REQUIRED)
-#find_package(Zlib REQUIRED)
-#find_package(zstd REQUIRED)
-#find_package(lz4 REQUIRED)
-#find_package(Rocksdb REQUIRED)
-
 include_directories(${BZIP2_INCLUDE_DIR})
-#include_directories(${ZLIB_INCLUDE_DIR})
-#include_directories(${ZSTD_INCLUDE_DIR})
-#include_directories(${LZ4_INCLUDE_DIR})
-include_directories(${ROCKSDB_INCLUDE_DIR})
+
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/external")
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
