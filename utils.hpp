@@ -322,6 +322,13 @@ inline std::vector<encoded_seq_t> randomDNASequences(int L, int N) {
 	return allseqs;
 }
 
+inline raw_seq_t leftpad(const raw_seq_t& s, int k) {
+	// ensure that the sequence is the right length (prepends '[' if not)
+	auto leftpad = raw_seq_t(k - s.size(), '[');
+	leftpad.insert(leftpad.end(), s.begin(), s.end());
+	return leftpad;
+}
+
 inline void dumpMap(const kmap_t& m, int k, Alphabet alpha, std::string outputpath) {
 	const int CHUNKSIZE = 10000;
 

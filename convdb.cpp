@@ -46,7 +46,8 @@ int main(int argc, char** argv) {
 	rdb.opts.error_if_exists = false;
 	rdb.opts.create_if_missing = false;
 
-	rdb.open(inputPath);
+	rdb.openRO(inputPath);
+
 	switch (outformat) {
 		case OutFormat::condensed:
 			dbToCondensed(rdb, outputFile);

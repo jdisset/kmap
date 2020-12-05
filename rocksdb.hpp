@@ -14,6 +14,7 @@ struct RocksDB {
 	RocksDB(rocksdb::Options o) : opts(o) {}
 
 	void open(const std::string& path);
+	void openRO(const std::string& path);
 
 	template <typename F> void forEach(F&& f) {
 		rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
@@ -24,6 +25,6 @@ struct RocksDB {
 		delete it;
 	}
 
-	void add(const multikmap_t& kmap, const Alphabet& alpha,
+	void add(const multikmap_t& kmap, const Alphabet& alpha, int K,
 	         DynamicProgress<ProgressBar>* bars = nullptr);
 };

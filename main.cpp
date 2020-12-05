@@ -197,7 +197,7 @@ int main(int argc, char** argv) {
 		mergeMultiMaps(allkmaps[0], allkmaps, 1, &bars);
 		// mergeMultiMaps(allkmaps[0], allkmaps, 1);
 
-		rdb.add(allkmaps[0], alpha, &bars);  // merges into existing db
+		rdb.add(allkmaps[0], alpha, K, &bars);  // merges into existing db
 		offset = next;
 	}
 
