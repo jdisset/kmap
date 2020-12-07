@@ -50,7 +50,7 @@ target_link_libraries(tests PRIVATE
 	${ROCKSDB_LIBRARIES} ${LZ4_LIBRARIES} ${ZLIB_LIBRARIES} ${BZIP2_LIBRARIES} ${ZSTD_LIBRARIES} )
 
 
-add_subdirectory(pykmap/cpp/pybind11)
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/pykmap/cpp/pybind11")
 pybind11_add_module(pykmapcore pykmap/cpp/main.cpp rocksdb.cpp rocksdbmerge.cpp)
 add_dependencies(pykmapcore rocksdb)
 target_include_directories(pykmapcore PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/")
