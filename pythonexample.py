@@ -1,6 +1,6 @@
 from pykmapcore import KmapDB
-import numpy as np
-db = KmapDB('build/rdbtest')
 
 NDATASETS = 50
+
+db = KmapDB('build/rdbtest')
 print(db.get('[[[[M',NDATASETS))
