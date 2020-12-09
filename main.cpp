@@ -1,5 +1,3 @@
-#include <rocksdb/db.h>
-
 #include <cxxopts.hpp>
 #include <indicators.hpp>
 #include <iostream>
@@ -9,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "rocksdb.hpp"
+#include "kmapdb.hpp"
 #include "utils.hpp"
 
 using namespace indicators;
@@ -143,8 +141,8 @@ int main(int argc, char** argv) {
 
 	show_console_cursor(false);
 
-	RocksDB rdb{};
-	rdb.open(outputPath);
+	KmapDB db{};
+	db.openW(outputPath);
 
 	// set up thread pool
 	TinyPool::ThreadPool tp{nbGlobalThreads};
@@ -197,7 +195,8 @@ int main(int argc, char** argv) {
 		mergeMultiMaps(allkmaps[0], allkmaps, 1, &bars);
 		// mergeMultiMaps(allkmaps[0], allkmaps, 1);
 
-		rdb.add(allkmaps[0], alpha, K, &bars);  // merges into existing db
+		std::cerr << "GOING TO MERGE" << std::endl;
+		db.add(allkmaps[0], alpha, K, &bars);  // merges into existing db
 		offset = next;
 	}
 
