@@ -141,7 +141,7 @@ int main(int argc, char** argv) {
 
 	show_console_cursor(false);
 
-	KmapDB db{};
+	KmapDB db{Alpha::getAlphabet(alpha)};
 	db.openW(outputPath);
 
 	// set up thread pool
@@ -197,6 +197,7 @@ int main(int argc, char** argv) {
 
 		std::cerr << "GOING TO MERGE" << std::endl;
 		db.add(allkmaps[0], alpha, K, &bars);  // merges into existing db
+		// db.add(allkmaps[0], alpha, K);  // merges into existing db
 		offset = next;
 	}
 

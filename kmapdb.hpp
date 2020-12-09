@@ -10,7 +10,13 @@ namespace fs = std::filesystem;
 
 struct KmapDB {
 	sqlite3 *db = nullptr;
-	KmapDB(){};
+	std::vector<std::string> alphabet;
+	size_t alphabetSize = 22;
+	KmapDB(const raw_seq_t &alpha) {
+		for (auto a : alpha) alphabet.push_back(std::string(1, a));
+		alphabet[alphabet.size() - 1] = "BEGIN_CHAR";
+		alphabet[alphabet.size() - 2] = "END_CHAR";
+	}
 
 	inline void openW(const std::string &dbfile, bool mergeIfExists = false) {
 		if (!mergeIfExists && fs::exists(dbfile))
@@ -21,21 +27,38 @@ struct KmapDB {
 
 	inline void createTables() {
 		if (!db) throw std::invalid_argument("db pointer is null");
+
 		std::string sql =
 		    "CREATE TABLE IF NOT EXISTS kmer("
 		    "id INTEGER PRIMARY KEY ,"
 		    "str TEXT);"
-		    "CREATE TABLE IF NOT EXISTS dataset("
+		    "CREATE TABLE IF NOT EXISTS dataset_counts("
 		    "id INTEGER PRIMARY KEY,"
-		    "path TEXT);"
-		    "CREATE TABLE IF NOT EXISTS counts("
-		    "id INTEGER PRIMARY KEY"
-		    "kmer_id INTEGER NOT NULL,"
-		    "dataset_id INTEGER NOT NULL,"
-		    "letter INTEGER NOT NULL,"
-		    "cnt INTEGER NOT NULL DEFAULT 0);";
+		    "kmer_id INTEGER NOT NULL,";
+
+		for (auto a : alphabet) sql += a + " INTEGER NOT NULL DEFAULT 0,";
+
+		sql += "dataset_id INTEGER NOT NULL);";
 		exec(sql);
 	}
+
+	// inline void createTables() {
+	// if (!db) throw std::invalid_argument("db pointer is null");
+	// std::string sql =
+	//"CREATE TABLE IF NOT EXISTS kmer("
+	//"id INTEGER PRIMARY KEY ,"
+	//"str TEXT);"
+	//"CREATE TABLE IF NOT EXISTS dataset("
+	//"id INTEGER PRIMARY KEY,"
+	//"path TEXT);"
+	//"CREATE TABLE IF NOT EXISTS counts(k"
+	//"id INTEGER PRIMARY KEY"
+	//"kmer_id INTEGER NOT NULL,"
+	//"dataset_id INTEGER NOT NULL,"
+	//"letter INTEGER NOT NULL,"
+	//"cnt INTEGER NOT NULL DEFAULT 0);";
+	// exec(sql);
+	//}
 
 	void saveKmer(const std::string &k) {
 		std::string sql = "INSERT OR IGNORE INTO kmer(str) VALUES ('" + k + "');";
@@ -54,15 +77,66 @@ struct KmapDB {
 
 	size_t getLastInsertId() { return sqlite3_last_insert_rowid(db); }
 
+	// inline void add(const multikmap_t &kmap, const Alphabet &alpha, int K,
+	// DynamicProgress<ProgressBar> *bars = nullptr) {
+	// exec("PRAGMA synchronous = OFF");
+	// exec("PRAGMA journal_mode = MEMORY");
+
+	// PBar p(bars, kmap.size() * 2, "Writing to KmapDB");
+	// std::vector<uint64_t> kmerIds;
+	// kmerIds.reserve(kmap.size());
+	//// 1 - save all kmers
+	// exec("BEGIN TRANSACTION");
+	//{
+	// std::string sql =
+	//"INSERT INTO kmer(str)"
+	//"VALUES (?1);";
+	// sqlite3_stmt *stmt;
+	// prepare(sql, &stmt);
+	// for (const auto &k : kmap) {
+	// auto decoded = leftpad(decodeSequenceView(k.first, alpha), K);
+	// std::string ks(&decoded[0], decoded.size());
+	// bind(stmt, ks);
+	// step(stmt);
+	// p.step();
+	// kmerIds.emplace_back(getLastInsertId());
+	//}
+	// sqlite3_finalize(stmt);
+	//}
+	// exec("END TRANSACTION");
+
+	// size_t ki = 0;
+	// std::string sql =
+	//"INSERT INTO count(kmer_id,dataset_id,letter,cnt)"
+	//"VALUES (?1, ?2, ?3, ?4);";
+	// sqlite3_stmt *stmt;
+	// prepare(sql, &stmt);
+	// exec("BEGIN TRANSACTION");
+	// for (const auto &[k, v] : kmap) {
+	// auto kmerId = kmerIds[ki++];
+	// for (const auto &[d, c] : v) {
+	// for (unsigned int i = 0; i < c.size(); ++i) {
+	// bind(stmt, kmerId, d, i, c[i]);
+	// step(stmt);
+	//}
+	//}
+	// p.step();
+	//}
+	// exec("END TRANSACTION");
+	// p.completeMsg("Merged batch");
+	// p.complete();
+	//}
+
 	inline void add(const multikmap_t &kmap, const Alphabet &alpha, int K,
 	                DynamicProgress<ProgressBar> *bars = nullptr) {
 		exec("PRAGMA synchronous = OFF");
 		exec("PRAGMA journal_mode = MEMORY");
 
-		PBar p(bars, kmap.size() * 2, "Writing to KmapDB");
+		PBar p(bars, kmap.size() * 3, "Writing to KmapDB");
 		std::vector<uint64_t> kmerIds;
 		kmerIds.reserve(kmap.size());
-		// 1 - save all kmers
+
+		// save all kmers
 		exec("BEGIN TRANSACTION");
 		{
 			std::string sql =
@@ -83,21 +157,25 @@ struct KmapDB {
 		exec("END TRANSACTION");
 
 		size_t ki = 0;
-		std::string sql =
-		    "INSERT INTO count(kmer_id,dataset_id,letter,cnt)"
-		    "VALUES (?1, ?2, ?3, ?4);";
+		std::string sql = "INSERT INTO dataset_counts(kmer_id,";
+		for (auto a : alphabet) sql += a + ",";
+		sql += "dataset_id) VALUES (?1";
+		for (size_t ia = 0; ia < alphabet.size(); ++ia) sql += ", ?" + std::to_string(ia + 2);
+		sql += ",?" + std::to_string(alphabetSize + 2) + ");";
+		// std::cerr << sql << std::endl;
+
+		exec("BEGIN TRANSACTION");
 		sqlite3_stmt *stmt;
 		prepare(sql, &stmt);
-		exec("BEGIN TRANSACTION");
 		for (const auto &[k, v] : kmap) {
 			auto kmerId = kmerIds[ki++];
 			for (const auto &[d, c] : v) {
-				for (unsigned int i = 0; i < c.size(); ++i) {
-					bind(stmt, kmerId, d, i, c[i]);
-					step(stmt);
-				}
+				sqbind(stmt, 1, kmerId);
+				for (unsigned int i = 0; i < c.size(); ++i) sqbind(stmt, i + 2, c[i]);
+				sqbind(stmt, alphabetSize + 2, d);
+				step(stmt);
 			}
-			p.step();
+			p.step(2);
 		}
 		exec("END TRANSACTION");
 		p.completeMsg("Merged batch");
