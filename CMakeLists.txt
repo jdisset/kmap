@@ -30,9 +30,8 @@ include_directories(${SQLITE3_INCLUDE_DIRS})
 add_executable(kmap main.cpp)
 target_link_libraries(kmap ${SQLITE3_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 
-#add_executable(kconv convdb.cpp )
-#target_link_libraries(kconv PRIVATE
-#${SQLITE3_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+add_executable(kconv convdb.cpp )
+target_link_libraries(kconv PRIVATE ${SQLITE3_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 
 #add_executable(tests test.cpp)
 #target_link_libraries(tests PRIVATE

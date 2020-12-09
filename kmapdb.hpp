@@ -12,6 +12,7 @@ struct KmapDB {
 	sqlite3 *db = nullptr;
 	std::vector<std::string> alphabet;
 	size_t alphabetSize = 22;
+	KmapDB() {}
 	KmapDB(const raw_seq_t &alpha) {
 		for (auto a : alpha) alphabet.push_back(std::string(1, a));
 		alphabet[alphabet.size() - 1] = "BEGIN_CHAR";
@@ -23,6 +24,11 @@ struct KmapDB {
 			throw std::runtime_error("DB file already exists");
 		if (sqlite3_open(dbfile.c_str(), &db)) throw std::runtime_error(sqlite3_errmsg(db));
 		createTables();
+	}
+
+	inline void openRO(const std::string &dbfile) {
+		if (!fs::exists(dbfile)) throw std::runtime_error("couldn't find DB file");
+		if (sqlite3_open(dbfile.c_str(), &db)) throw std::runtime_error(sqlite3_errmsg(db));
 	}
 
 	inline void createTables() {
@@ -59,15 +65,59 @@ struct KmapDB {
 	//"cnt INTEGER NOT NULL DEFAULT 0);";
 	// exec(sql);
 	//}
+	//
+
+	template <typename F> void forEach(F &&f) {
+		std::string sql =
+		    "SELECT * FROM dataset_counts, kmer WHERE kmer_id = kmer.id ORDER BY str, "
+		    "dataset_id;";
+
+		sqlite3_stmt *stmt;
+		prepare(sql, &stmt);
+
+		std::string currentKmer;
+		int64_t currentDatasetId = -1;
+		std::vector<uint64_t> cnts;
+		datacount_t dtc;
+		while (sqlite3_step(stmt) == SQLITE_ROW) {
+			size_t nCols = sqlite3_data_count(stmt);
+			size_t alphaSize = nCols - 5;
+			std::string kmer(
+			    reinterpret_cast<const char *>(sqlite3_column_text(stmt, nCols - 1)));
+			if (kmer != currentKmer) {
+				if (dtc.size() > 0) std::forward<F>(f)(currentKmer, dtc);
+				currentKmer = kmer;
+				dtc = datacount_t();
+			}
+			int64_t dataset_id = sqlite3_column_int64(stmt, nCols - 3);
+			if (dataset_id != currentDatasetId) cnts = std::vector<uint64_t>(alphaSize);
+			currentDatasetId = dataset_id;
+			for (size_t i = 2; i < alphaSize + 2; ++i) {
+				// merges (adds up) if currentDatasetId didnt change
+				cnts[i - 2] += sqlite3_column_int64(stmt, i);
+			}
+			dtc[dataset_id] = cnts;
+		}
+		sqlite3_finalize(stmt);
+	}
 
 	void saveKmer(const std::string &k) {
 		std::string sql = "INSERT OR IGNORE INTO kmer(str) VALUES ('" + k + "');";
 		exec(sql);
 	}
 
+	uint64_t getRowCount() {
+		sqlite3_stmt *stmt;
+		int rc = sqlite3_prepare_v2(db, "SELECT count(*) FROM dataset_counts;", -1, &stmt, 0);
+		rc = sqlite3_step(stmt);
+		uint64_t res = sqlite3_column_int64(stmt, 0);
+		sqlite3_finalize(stmt);
+		return res;
+	}
+
 	uint64_t getKmerId(const std::string &k) {
 		sqlite3_stmt *stmt;
-		int rc = sqlite3_prepare(db, "SELECT id FROM kmer where str=?;", -1, &stmt, 0);
+		int rc = sqlite3_prepare_v2(db, "SELECT id FROM kmer where str=?;", -1, &stmt, 0);
 		sqbind(stmt, 1, k);
 		rc = sqlite3_step(stmt);
 		uint64_t res = sqlite3_column_int64(stmt, 0);
@@ -162,7 +212,6 @@ struct KmapDB {
 		sql += "dataset_id) VALUES (?1";
 		for (size_t ia = 0; ia < alphabet.size(); ++ia) sql += ", ?" + std::to_string(ia + 2);
 		sql += ",?" + std::to_string(alphabetSize + 2) + ");";
-		// std::cerr << sql << std::endl;
 
 		exec("BEGIN TRANSACTION");
 		sqlite3_stmt *stmt;

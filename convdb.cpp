@@ -1,11 +1,9 @@
-#include <rocksdb/db.h>
-
 #include <cxxopts.hpp>
 #include <indicators.hpp>
 #include <iostream>
 
 #include "export.hpp"
-#include "rocksdb.hpp"
+#include "kmapdb.hpp"
 
 int main(int argc, char** argv) {
 	std::string inputPath;
@@ -42,19 +40,16 @@ int main(int argc, char** argv) {
 		exit(1);
 	}
 
-	RocksDB rdb{};
-	rdb.opts.error_if_exists = false;
-	rdb.opts.create_if_missing = false;
-
-	rdb.openRO(inputPath);
+	KmapDB db{};
+	db.openRO(inputPath);
 
 	switch (outformat) {
 		case OutFormat::condensed:
-			dbToCondensed(rdb, outputFile);
+			// dbToCondensed(db, outputFile);
 			break;
 		default:
 		case OutFormat::sparsematrix:
-			dbToSparseMatrix(rdb, outputFile);
+			dbToSparseMatrix(db, outputFile);
 			break;
 	}
 }
