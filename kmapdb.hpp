@@ -79,10 +79,11 @@ struct KmapDB {
 		int64_t currentDatasetId = -1;
 		std::vector<uint64_t> cnts;
 		datacount_t dtc;
+		std::string kmer;
 		while (sqlite3_step(stmt) == SQLITE_ROW) {
 			size_t nCols = sqlite3_data_count(stmt);
 			size_t alphaSize = nCols - 5;
-			std::string kmer(
+			kmer = std::string(
 			    reinterpret_cast<const char *>(sqlite3_column_text(stmt, nCols - 1)));
 			if (kmer != currentKmer) {
 				if (dtc.size() > 0) std::forward<F>(f)(currentKmer, dtc);
@@ -98,6 +99,7 @@ struct KmapDB {
 			}
 			dtc[dataset_id] = cnts;
 		}
+		if (dtc.size() > 0) std::forward<F>(f)(kmer, dtc);
 		sqlite3_finalize(stmt);
 	}
 
