@@ -59,16 +59,17 @@ void computeDatasetMultiKmap(const dataset_t& dataset, size_t datasetId,
 				const size_t lower = i;
 				const size_t upper = std::min(i + nbSeqPerTask, dataset.size());
 				computeMultiKMap(dataset, datasetId, K, alpha, lower, upper, allmaps[procId]);
-				int ticksize = 0;
-				for (size_t j = lower; j < upper; ++j) ticksize += dataset[j].size();
-				pbars[progressBarId].tick(ticksize);
+				// int ticksize = 0;
+				// for (size_t j = lower; j < upper; ++j) ticksize += dataset[j].size();
+				// pbars[progressBarId].tick(ticksize);
 			});
 		}
 		tp.waitAll();
+		std::cerr << "Dataset " << datasetId << " hashed" << std::endl;
 		mergeMultiMaps(outmap, allmaps);
 	} else {
 		computeMultiKMap(dataset, datasetId, K, alpha, 0, dataset.size(), outmap);
-		for (const auto& d : dataset) pbars[progressBarId].tick(d.size());
+		// for (const auto& d : dataset) pbars[progressBarId].tick(d.size());
 	}
 }
 

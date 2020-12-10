@@ -59,55 +59,49 @@ inline void dbToSparseMatrix(KmapDB& db, std::string outputFile) {
 	p.complete();
 }
 
-//// outputs in sparse matrix format:
-//// k-mer, sparse matrix indices, sparse matrix values
-//// the sparse matrix contains the count of every next letter for every dataset
-// inline void dbToCondensed(RocksDB& rdb, std::string outputFile) {
-// const int CHUNKSIZE = 500;
+// outputs in sparse matrix format:
+// k-mer, sparse matrix indices, sparse matrix values
+// the sparse matrix contains the count of every next letter for every dataset
+inline void dbToCondensed(KmapDB& db, std::string outputFile) {
+	const int CHUNKSIZE = 500;
 
-// std::FILE* file = std::fopen(outputFile.c_str(), "w");
-// if (!file) throw std::runtime_error("Error opening output file");
-// std::string estimatedN = "1000";
-// rdb.db->GetProperty("rocksdb.estimate-num-keys", &estimatedN);
-// size_t N = std::stoi(estimatedN);
-// DynamicProgress<ProgressBar> bars{};
-//// bars.set_option(option::HideBarWhenComplete{true});
-// PBar p{&bars, N + CHUNKSIZE, "Writing to " + outputFile};
+	std::FILE* file = std::fopen(outputFile.c_str(), "w");
+	if (!file) throw std::runtime_error("Error opening output file");
 
-//// write header line
-// std::fprintf(file, "kmer; counts\n");
+	size_t N = db.getRowCount();
+	DynamicProgress<ProgressBar> bars{};
+	PBar p{&bars, N + CHUNKSIZE, "Writing to " + outputFile};
 
-// int c = 0;
-// std::string buff;
-// auto saveFunc = [&](const auto* it) {
-// datacount_t d = deserialize(it->value().ToString());
-// std::string kmer = it->key().ToString();
-//// auto leftpad = raw_seq_t(k - decoded.size(), '[');
-//// kmer.insert(kmer.begin(), leftpad.begin(), leftpad.end());
-// buff += kmer + "; [";
+	// write header line
+	std::fprintf(file, "kmer; counts\n");
 
-// size_t nChar = d.begin()->second.size() - 1;
-// std::vector<size_t> allcounts(nChar, 0);
-// for (const auto& [dataset, counts] : d) {
-// assert(counts.size() == nChar + 1);
-// for (size_t j = 0; j < nChar; ++j) allcounts[j] += counts[j];
-//}
-// for (const auto& c : allcounts) buff += std::to_string(c) + ",";
-// buff.pop_back();  // removes trailing comma
-// buff += "]\n";
-// if (++c > CHUNKSIZE) {
-// std::fwrite(buff.c_str(), 1, buff.size(), file);
-// buff.clear();
-// p.step(c);
-// c = 0;
-//}
-//};
+	int c = 0;
+	std::string buff;
+	auto saveFunc = [&](const std::string& kmer, const datacount_t& d) {
+		buff += kmer + "; [";
 
-// rdb.forEach(saveFunc);
+		size_t nChar = d.begin()->second.size() - 1;
+		std::vector<size_t> allcounts(nChar, 0);
+		for (const auto& [dataset, counts] : d) {
+			assert(counts.size() == nChar + 1);
+			for (size_t j = 0; j < nChar; ++j) allcounts[j] += counts[j];
+		}
+		for (const auto& c : allcounts) buff += std::to_string(c) + ",";
+		buff.pop_back();  // removes trailing comma
+		buff += "]\n";
+		if (++c > CHUNKSIZE) {
+			std::fwrite(buff.c_str(), 1, buff.size(), file);
+			buff.clear();
+			p.step(c);
+			c = 0;
+		}
+	};
 
-// std::fwrite(buff.c_str(), 1, buff.size(), file);
-// p.step(c);
-// std::fclose(file);
-// p.completeMsg("✔ KMap written to " + outputFile);
-// p.complete();
-/*}*/
+	db.forEach(saveFunc);
+
+	std::fwrite(buff.c_str(), 1, buff.size(), file);
+	p.step(c);
+	std::fclose(file);
+	p.completeMsg("✔ KMap written to " + outputFile);
+	p.complete();
+}
