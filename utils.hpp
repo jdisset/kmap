@@ -177,8 +177,7 @@ struct PBar {
 		if (bars) {
 			ticks += i;
 			ticksFromStart += i;
-			if (ticks > total / 1000) {
-				// std::cerr << "tick " << ticksFromStart << " / " << total << std::endl;
+			if (ticks > total / 400) {
 				if (ticksFromStart <= total) (*bars)[barid].tick(ticks);
 				ticks = 0;
 			}
@@ -211,7 +210,7 @@ struct PBar {
 
 template <typename B>
 std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet& alpha,
-                                     B& pbars, size_t barid) {
+                                     B& pbars, size_t barid, size_t readSize) {
 	fs::path p{filepath};
 	std::vector<encoded_seq_t> res;
 	std::ifstream file(filepath.c_str());
@@ -237,7 +236,7 @@ std::vector<encoded_seq_t> readFasta(const std::string& filepath, const Alphabet
 				currentSeq.insert(currentSeq.end(), line.begin(), line.end());
 			}
 		}
-		if (charactersRead > 10000) pbars[barid].tick(std::exchange(charactersRead, 0));
+		if (charactersRead > readSize/300) pbars[barid].tick(std::exchange(charactersRead, 0));
 	}
 	recordSeq();
 	pbars[barid].tick(charactersRead);
@@ -300,7 +299,7 @@ inline std::pair<std::vector<dataset_t>, size_t> readDatasets(
 	std::vector<dataset_t> datasets;
 	for (size_t i = offset; i < next; ++i) {
 		bars[barid].set_option(option::PostfixText{"Loading " + paths[i].string()});
-		datasets.push_back(readFasta(paths[i], alpha, bars, barid));
+		datasets.push_back(readFasta(paths[i], alpha, bars, barid, readSize));
 	}
 	bars[barid].mark_as_completed();
 
