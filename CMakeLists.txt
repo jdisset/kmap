@@ -21,17 +21,20 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
 #set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -g -Wall -Wextra -pedantic")
 
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/external")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/external/sqlite")
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-find_package(SQLite3 REQUIRED)
+#find_package(SQLite3 REQUIRED)
 include_directories(${SQLITE3_INCLUDE_DIRS})
 
-add_executable(kmap main.cpp)
-target_link_libraries(kmap ${SQLITE3_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+add_executable(kmap main.cpp external/sqlite/sqlite3.c)
+#target_link_libraries(kmap ${SQLITE3_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(kmap PRIVATE ${CMAKE_THREAD_LIBS_INIT})
 
-add_executable(kconv convdb.cpp )
-target_link_libraries(kconv PRIVATE ${SQLITE3_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+add_executable(kconv convdb.cpp external/sqlite/sqlite3.c)
+#target_link_libraries(kconv PRIVATE ${SQLITE3_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(kconv PRIVATE ${CMAKE_THREAD_LIBS_INIT})
 
 #add_executable(tests test.cpp)
 #target_link_libraries(tests PRIVATE
