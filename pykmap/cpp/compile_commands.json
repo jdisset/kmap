@@ -1,7 +1,0 @@
-[
-{
-  "directory": "/Users/jeandisset/Code/marks/kmap/pykmap/cpp",
-  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -Dpykmapcore_EXPORTS -I/Users/jeandisset/Code/marks/kmap/pykmap/cpp/../.. -I/Users/jeandisset/Code/marks/kmap/pykmap/cpp/../../external -I/Users/jeandisset/Code/marks/kmap/pykmap/cpp/pybind11/include -I/usr/local/Caskroom/miniconda/base/envs/research/include/python3.8   -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk -fPIC -fvisibility=hidden   -flto -std=gnu++1z -o CMakeFiles/pykmapcore.dir/main.cpp.o -c /Users/jeandisset/Code/marks/kmap/pykmap/cpp/main.cpp",
-  "file": "/Users/jeandisset/Code/marks/kmap/pykmap/cpp/main.cpp"
-}
-]
