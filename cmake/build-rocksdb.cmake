@@ -5,7 +5,7 @@ find_package(Git REQUIRED)
 include(ExternalProject)
 ExternalProject_Add(rocksdb
 	GIT_REPOSITORY	https://github.com/facebook/rocksdb
-	GIT_TAG		    v6.10.2
+	GIT_TAG		    v6.25.3
 	GIT_SHALLOW		1
 	GIT_PROGRESS	1
 	INSTALL_DIR		${ROCKSDB_ROOT_DIR}/bin
