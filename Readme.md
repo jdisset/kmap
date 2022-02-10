@@ -2,18 +2,15 @@
 kmap
 ****
 
-========
 Overview
 ========
 The repository provides code to represent sequences files in fasta format in terms of their kmer counts.
 
-======
 Author
 ======
 Jean Disset
  * j.disset@gmail.com
  
-============
 Installation
 ============
 
@@ -36,8 +33,6 @@ After cloning the repo, run the folling code ::
     cmake ..
     make -j4
 ```
-    
-====================
 Processing sequences
 ====================
 kmap starts with a set of sequence files and a lag k.
@@ -61,16 +56,16 @@ with the two sequences in separate files with k=2 results in ::
     TT;[[1,3],[1,4]];[1,1]
 ```
 
-``AT;[[0,4]];[1]`` means that the 2-mer ``AT`` was only seen in the 0-th dataset followed by the letter of the DNA alphabet indexed at 4, the stop symbol ], and this transition was only seen once.
-=========================
+`AT;[[0,4]];[1]` means that the 2-mer `AT` was only seen in the 0-th dataset followed by the letter of the DNA alphabet indexed at 4, the stop symbol ], and this transition was only seen once.
+
 Processing sequence files
 =========================
-Running ``kmap --help`` will describe how to use kmap.
-The ``t, n, c`` flags control mutithreading.
-The ``a`` flag takes the alphabet of the sequence, either 'dna', 'rna' or 'protein'.
-The ``k`` flag describes the length of the kmers to be represented or "k" in "k-mer".
-The input to kmap, specified by the ``i`` flag is a text file with the locations of separate sequence files relative to the input file on each line.
-The output location is described by the ``o`` flag.
+Running `kmap --help` will describe how to use kmap.
+The `t, n, c` flags control mutithreading.
+The `a` flag takes the alphabet of the sequence, either 'dna', 'rna' or 'protein'.
+The `k` flag describes the length of the kmers to be represented or "k" in "k-mer".
+The input to kmap, specified by the `i` flag is a text file with the locations of separate sequence files relative to the input file on each line.
+The output location is described by the `o` flag.
 
 The processing is done in two steps, first with kmap, then kconv.
 As an example, to process protein sequences in sequences1.fa and sequences2.fa at k=3 into kmap.csv, one first must create a file files_list.txt ::
