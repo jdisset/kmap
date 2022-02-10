@@ -6,10 +6,8 @@ Overview
 ========
 The repository provides code to represent sequences files in fasta format in terms of their kmer counts.
 
-Author
-======
-Jean Disset
- * j.disset@gmail.com
+### Author
+Jean Disset (j.disset@gmail.com)
  
 Installation
 ============
