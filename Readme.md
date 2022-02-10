@@ -16,13 +16,26 @@ Jean Disset
 ============
 Installation
 ============
-Requirements are gcc version at least 9.2.0 and cmake version at least 3.14.1.
+
+### Requirements 
+- gcc >= 9.2.0 
+- cmake >= 3.14.1
+- libBz2 (available from most package managers)
+
+Kmap depends on rocksDB, which will be automatically pulled from the official repository and compiled when running cmake. RocksDB itslef requires libBz2, which should be available from most system package managers.
+
+### Instructions
+
+Kmap can be built using the included CMakeLists.txt. 
 After cloning the repo, run the folling code ::
+
+```
     cd
     mkdir build
     cd build
     cmake ..
-    make
+    make -j4
+```
     
 ====================
 Processing sequences
@@ -35,14 +48,18 @@ kmap will then output a file of semicolon-separated list of values.
 The file will include each kmer seen in the data, followed by the indices and values of the counts matrix in sparse format.
 
 For example, kmapping ::
+```
     TAT
     TTT
+```
 with the two sequences in separate files with k=2 results in ::
+```
     [[;[[0,3],[1,3]];[1,1]
     [T;[[0,0],[0,3]];[1,1]
     TA;[[0,3]];[1]
     AT;[[0,4]];[1]
     TT;[[1,3],[1,4]];[1,1]
+```
 
 ``AT;[[0,4]];[1]`` means that the 2-mer ``AT`` was only seen in the 0-th dataset followed by the letter of the DNA alphabet indexed at 4, the stop symbol ], and this transition was only seen once.
 =========================
